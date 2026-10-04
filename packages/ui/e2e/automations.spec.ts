@@ -67,6 +67,11 @@ async function boot(page: Page): Promise<void> {
             return Promise.resolve(null);
           }
           case 'delete_snippet': {
+            // Refused like the real handler refuses one an automation still uses.
+            const user = state.automations.find((f) =>
+              (f.nodes as Array<{ snippetId: string }>).some((n) => n.snippetId === args[0])
+            );
+            if (user) return Promise.reject({ message: `cannot delete: still used by automation '${user.name}'` });
             state.snippets = state.snippets.filter((x) => x.id !== args[0]);
             return Promise.resolve(null);
           }
@@ -1254,4 +1259,24 @@ test('a delete that is refused says why in the dialog, which stays open', async 
   await dialog.getByRole('button', { name: 'Delete' }).click();
   await expect(dialog.getByRole('alert')).toHaveText("cannot delete: run by automation 'caller'");
   await expect(page.getByTitle('Open callee')).toBeVisible();
+});
+
+test('a snippet delete that is refused says why in the dialog, which stays open', async ({ page }) => {
+  await boot(page);
+  await page.evaluate(() => {
+    const state = (window as unknown as { __automationState: { snippets: unknown[]; automations: unknown[] } }).__automationState;
+    state.snippets.push({ id: 'used-snippet', name: 'used-snippet', command: 'echo hi', timeoutSecs: 30 });
+    state.automations.push({
+      name: 'user',
+      params: [],
+      nodes: [{ id: 'n', snippetId: 'used-snippet', label: 'step', continueOnError: false, target: 'local', position: { x: 0, y: 0 } }],
+      edges: []
+    });
+  });
+  await page.getByRole('button', { name: 'Snippets', exact: true }).click();
+  await page.getByRole('button', { name: 'Delete used-snippet' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Delete snippet' });
+  await dialog.getByRole('button', { name: 'Delete' }).click();
+  await expect(dialog.getByRole('alert')).toHaveText("cannot delete: still used by automation 'user'");
+  await expect(page.getByRole('button', { name: 'Delete used-snippet' })).toBeVisible();
 });

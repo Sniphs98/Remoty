@@ -56,20 +56,20 @@
     dialog = null;
   }
 
+  /** Why the last delete in the open dialog failed — shown in the dialog, which stays open,
+   *  since a refusal (an automation still uses this snippet, or still runs this automation)
+   *  only in the status bar looked like the delete had silently done nothing. */
+  let deleteError = $state<string | null>(null);
+
   async function confirmDeleteSnippet(id: string): Promise<void> {
     try {
       await deleteSnippet(id);
       snippets.set(await listSnippets());
+      dialog = null;
     } catch (e) {
-      lastError.set(message(e));
+      deleteError = message(e);
     }
-    dialog = null;
   }
-
-  /** Why the last delete in the open dialog failed — shown in the dialog, which stays open,
-   *  since a refusal (another automation still runs this one) only in the status bar looked
-   *  like the delete had silently done nothing. */
-  let deleteError = $state<string | null>(null);
 
   async function confirmDeleteAutomation(name: string): Promise<void> {
     try {
@@ -240,7 +240,10 @@
                   class={iconBtn}
                   title="Delete {snippet.name}"
                   aria-label="Delete {snippet.name}"
-                  onclick={() => (dialog = { kind: 'deleteSnippet', snippet })}
+                  onclick={() => {
+                    deleteError = null;
+                    dialog = { kind: 'deleteSnippet', snippet };
+                  }}
                 >
                   <Icon name="trash" size={15} />
                 </button>
@@ -347,9 +350,12 @@
     <div class="space-y-3 px-5 py-4">
       <h2 class="text-sm font-semibold">Delete snippet</h2>
       <p class="text-sm text-muted">
-        Delete “{snippet.name}”? Any automation still using it will fail to save until you remove it there
-        first.
+        Delete “{snippet.name}”? A snippet an automation still uses can't be deleted until you remove it
+        there first.
       </p>
+      {#if deleteError}
+        <p class="text-sm text-status-crit" role="alert">{deleteError}</p>
+      {/if}
       <div class="flex justify-end gap-2 pt-1">
         <Button variant="ghost" onclick={() => (dialog = null)}>Cancel</Button>
         <Button variant="primary" onclick={() => confirmDeleteSnippet(snippet.id)}>Delete</Button>
