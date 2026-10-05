@@ -11,10 +11,12 @@ import {
   uploadDoneLine,
   formatSize,
   compareTexts,
+  ifCommandReport,
   validateAutomation,
+  type AutomationProgressEvent,
   type RunAutomationDeps
 } from './engine.js';
-import type { Snippet, Automation, AutomationNode, AutomationParam, NodeResult } from './types.js';
+import type { Snippet, Automation, AutomationNode, AutomationParam, ExecResult, IfCondition, NodeResult, NodeTarget } from './types.js';
 
 function snippet(partial: Partial<Snippet> & Pick<Snippet, 'id' | 'name'>): Snippet {
   return { command: 'echo hi', timeoutSecs: 30, ...partial };
@@ -1053,6 +1055,201 @@ describe('if nodes', () => {
     results = await runAutomation(byCommand, library, { file: 'missing' }, deps(ran));
     expect(results.map((r) => r.status)).toEqual(['success', 'success']);
     expect(ran).toEqual(['test -f image.tar', 'test -f missing', 'make']);
+  });
+});
+
+describe('if nodes: a command\'s output', () => {
+  const yes = snippet({ id: 'yes', name: 'Yes', command: 'on yes' });
+  const no = snippet({ id: 'no', name: 'No', command: 'on no' });
+  const library = new Map([yes, no].map((s) => [s.id, s]));
+
+  /** check? —yes→ on-yes, —no→ on-no; the check runs where `target` says. */
+  function flow(target: NodeTarget, condition: Partial<Extract<IfCondition, { kind: 'command' }>> = {}, wslDistro?: string): Automation {
+    const f = automation(
+      [
+        node({
+          id: 'if',
+          snippetId: '',
+          label: 'check',
+          target,
+          wslDistro,
+          condition: { kind: 'command', command: 'test -f "$HOME/temp/{{params.image}}.tar.gz"', timeoutSecs: 10, ...condition }
+        }),
+        node({ id: 'y', snippetId: 'yes', label: 'on-yes' }),
+        node({ id: 'n', snippetId: 'no', label: 'on-no' })
+      ],
+      [],
+      [{ name: 'image', kind: 'text' }, ...(target === 'remote' ? hostParam : [])]
+    );
+    f.edges = [
+      { from: 'if', to: 'y', branch: 'yes' },
+      { from: 'if', to: 'n', branch: 'no' }
+    ];
+    return f;
+  }
+
+  /** Runs `f` with the If's command answering `check` wherever it runs; records where
+   *  each command ran, and every progress line. */
+  async function run(f: Automation, check: ExecResult, signal?: AbortSignal) {
+    const ran: string[] = [];
+    const progress: string[] = [];
+    const answer = (where: string, command: string): ExecResult => {
+      ran.push(`${where}: ${command}`);
+      return command.startsWith('on ') ? { output: '', ok: true, exitCode: 0 } : check;
+    };
+    const results = await runAutomation(
+      f,
+      library,
+      { image: 'frontend', host: 'web-1' },
+      {
+        runLocal: async (command) => answer('local', command),
+        runWsl: async (distro, command) => answer(`wsl ${distro ?? 'default'}`, command),
+        runGitHub: async () => '',
+        wslUploadSource: async (_d, p) => p,
+        connectHost: async (host) => ({
+          runShell: async (command) => answer(`remote ${host}`, command),
+          upload: async () => {},
+          disconnect: () => {}
+        })
+      },
+      (e: AutomationProgressEvent) => {
+        if (e.kind === 'nodeProgress' && e.nodeId === 'if') progress.push(e.message);
+      },
+      signal
+    );
+    return { results, ran, progress };
+  }
+
+  const found: ExecResult = {
+    output: 'ARCHIVE=/home/lukas/temp/frontend.tar.gz\nManifest: [...]\n',
+    stdout: 'ARCHIVE=/home/lukas/temp/frontend.tar.gz\nManifest: [...]\n',
+    stderr: '',
+    ok: true,
+    exitCode: 0
+  };
+  const missing: ExecResult = {
+    output: 'ARCHIVE=/home/lukas/temp/frontend.tar.gz\ntar: frontend.tar.gz: Cannot open\n',
+    stdout: 'ARCHIVE=/home/lukas/temp/frontend.tar.gz\n',
+    stderr: 'tar: frontend.tar.gz: Cannot open\n',
+    ok: false,
+    exitCode: 1,
+    error: 'Command failed (exit code 1)'
+  };
+
+  it('exit code 0 is yes: the node succeeds, the yes way runs, and what the command printed is in the progress', async () => {
+    const { results, progress } = await run(flow('local'), found);
+    expect(results.map((r) => [r.label, r.status, r.output])).toEqual([
+      ['check', 'success', 'yes'],
+      ['on-yes', 'success', ''],
+      ['on-no', 'skipped', '']
+    ]);
+    expect(progress).toEqual(['ARCHIVE=/home/lukas/temp/frontend.tar.gz\nManifest: [...]\n\nResult: yes']);
+  });
+
+  it('a non-zero exit is no — not a failure: the node succeeds and the no way runs', async () => {
+    const { results, progress } = await run(flow('local'), missing);
+    expect(results.map((r) => [r.label, r.status, r.output, r.error])).toEqual([
+      ['check', 'success', 'no', undefined],
+      ['on-yes', 'skipped', '', undefined],
+      ['on-no', 'success', '', undefined]
+    ]);
+    // stdout and stderr both show.
+    expect(progress).toEqual(['ARCHIVE=/home/lukas/temp/frontend.tar.gz\ntar: frontend.tar.gz: Cannot open\n\nResult: no']);
+  });
+
+  it('a command that printed nothing still says its answer', async () => {
+    const { progress } = await run(flow('local'), { output: '', ok: false, exitCode: 1 });
+    expect(progress).toEqual(['Result: no']);
+  });
+
+  it('runs where the node says — WSL in its distribution, with the templates filled in', async () => {
+    const { results, ran, progress } = await run(flow('wsl', { debug: true }, 'Ubuntu'), missing);
+    expect(ran[0]).toBe('wsl Ubuntu: test -f "$HOME/temp/frontend.tar.gz"');
+    expect(results[0]).toMatchObject({ status: 'success', output: 'no' });
+    expect(progress[0]).toBe(
+      [
+        'Command:',
+        'test -f "$HOME/temp/frontend.tar.gz"',
+        '',
+        'Target: WSL',
+        'Distribution: Ubuntu',
+        'Exit code: 1',
+        '',
+        'stdout:',
+        'ARCHIVE=/home/lukas/temp/frontend.tar.gz',
+        '',
+        'stderr:',
+        'tar: frontend.tar.gz: Cannot open',
+        '',
+        'Result: no'
+      ].join('\n')
+    );
+  });
+
+  it('runs on the host for a remote node, and here for a local one', async () => {
+    const remote = await run(flow('remote', { debug: true }), found);
+    expect(remote.ran[0]).toBe('remote web-1: test -f "$HOME/temp/frontend.tar.gz"');
+    expect(remote.results.map((r) => r.status)).toEqual(['success', 'success', 'skipped']);
+    expect(remote.progress[0]).toContain('Target: remote\nHost: web-1\nExit code: 0');
+    expect(remote.progress[0]).toContain('stderr:\n(empty)');
+    const local = await run(flow('local', { debug: true }), found);
+    expect(local.ran[0]).toBe('local: test -f "$HOME/temp/frontend.tar.gz"');
+    expect(local.progress[0]).toContain('Target: local\nExit code: 0');
+  });
+
+  it('a timeout fails the node, with what it printed — and neither way runs', async () => {
+    const { results, progress } = await run(flow('wsl'), {
+      output: 'still looking…\n',
+      ok: false,
+      exitCode: null,
+      timedOut: true,
+      error: 'command timed out after 10s'
+    });
+    expect(results.map((r) => [r.status, r.error])).toEqual([
+      ['failed', 'command timed out after 10s'],
+      ['skipped', undefined],
+      ['skipped', undefined]
+    ]);
+    expect(progress).toEqual(['still looking…\n\nResult: error — command timed out after 10s']);
+  });
+
+  it('a command that could not run at all (no exit code) fails the node', async () => {
+    const { results } = await run(flow('wsl'), { output: '', ok: false, exitCode: null, error: 'WSL is not installed (wsl.exe not found)' });
+    expect(results[0]).toMatchObject({ status: 'failed', error: 'WSL is not installed (wsl.exe not found)' });
+  });
+
+  it('a runner that tells no exit code: a failure is still a no', async () => {
+    const { results } = await run(flow('remote'), { output: 'nope', ok: false, error: 'exited 1' });
+    expect(results[0]).toMatchObject({ status: 'success', output: 'no' });
+  });
+
+  it('a canceled run fails the If as canceled', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const { results } = await run(flow('local'), found, controller.signal);
+    expect(results.map((r) => r.status)).toEqual(['skipped', 'skipped', 'skipped']);
+    const running = new AbortController();
+    const f = flow('local');
+    const pending = runAutomation(f, library, { image: 'x' }, {
+      runLocal: () => new Promise((resolve) => running.signal.addEventListener('abort', () => resolve({ output: '', ok: false, error: 'canceled', exitCode: null }))),
+      runWsl: async () => found,
+      runGitHub: async () => '',
+      wslUploadSource: async (_d, p) => p,
+      connectHost: async () => {
+        throw new Error('not reached');
+      }
+    }, undefined, running.signal);
+    setTimeout(() => running.abort(), 5);
+    expect((await pending).map((r) => [r.status, r.error])).toEqual([
+      ['failed', CANCELED],
+      ['skipped', CANCELED],
+      ['skipped', CANCELED]
+    ]);
+  });
+
+  it('a report falls back to the combined output when the runner gives no streams', () => {
+    const report = ifCommandReport({ command: 'check', target: 'wsl', result: { output: 'both', ok: true }, answer: 'yes' }, true);
+    expect(report).toBe(['Command:', 'check', '', 'Target: WSL', 'Distribution: (default)', 'Exit code: not reported', '', 'output:', 'both', '', 'Result: yes'].join('\n'));
   });
 });
 

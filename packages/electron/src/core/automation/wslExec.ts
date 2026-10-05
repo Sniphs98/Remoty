@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { homedir } from 'node:os';
 import { killOnAbort } from './localExec.js';
+import type { ExecResult } from './types.js';
 
 /**
  * Runs a Snippet "wsl" node: the command in a WSL distribution on this Windows machine
@@ -57,8 +58,8 @@ export async function runWslCommand(
   command: string,
   timeoutMs: number,
   signal?: AbortSignal
-): Promise<{ output: string; ok: boolean; error?: string }> {
-  if (process.platform !== 'win32') return { output: '', ok: false, error: 'WSL is only available on Windows' };
+): Promise<ExecResult> {
+  if (process.platform !== 'win32') return { output: '', ok: false, error: 'WSL is only available on Windows', exitCode: null };
   const wslenv = [process.env.WSLENV, `${COMMAND_VAR}/u`].filter(Boolean).join(':');
   return new Promise((resolve) => {
     let release = (): void => {};
@@ -76,13 +77,16 @@ export async function runWslCommand(
       },
       (err, stdout, stderr) => {
         release();
-        const output = decodeWslOutput(stdout) + decodeWslOutput(stderr);
+        const out = decodeWslOutput(stdout);
+        const errText = decodeWslOutput(stderr);
+        const output = out + errText;
+        const streams = { output, stdout: out, stderr: errText };
         if (signal?.aborted) {
-          resolve({ output, ok: false, error: 'canceled' });
+          resolve({ ...streams, ok: false, error: 'canceled', exitCode: null });
           return;
         }
         if (!err) {
-          resolve({ output, ok: true });
+          resolve({ ...streams, ok: true, exitCode: 0 });
           return;
         }
         const e = err as NodeJS.ErrnoException & { killed?: boolean };
@@ -98,7 +102,10 @@ export async function runWslCommand(
               : typeof code === 'number'
                 ? `exited with code ${code}`
                 : e.message;
-        resolve({ output, ok: false, error: reason });
+        // Only a code the command itself exited with is its exit code; wsl.exe's own
+        // failures, a timeout and a missing wsl.exe mean the command never finished.
+        const exitCode = !e.killed && typeof code === 'number' && code <= 255 ? code : null;
+        resolve({ ...streams, ok: false, error: reason, exitCode, ...(e.killed ? { timedOut: true } : {}) });
       }
     );
     release = killOnAbort(child, signal);

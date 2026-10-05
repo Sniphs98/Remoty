@@ -90,7 +90,15 @@ export type IfOperator = 'equals' | 'notEquals' | 'contains' | 'notContains' | '
  *  text field takes `{{params.<name>}}` and `{{nodes.<label>.output}}`. */
 export type IfCondition =
   | { kind: 'compare'; left: string; op: IfOperator; right: string }
-  | { kind: 'command'; command: string; timeoutSecs: number };
+  | {
+      kind: 'command';
+      command: string;
+      timeoutSecs: number;
+      /** Also show, in the run's progress, the command as it ran (templates filled in),
+       *  where it ran, its exit code and its stdout and stderr apart. Unset: just its
+       *  output and the answer. */
+      debug?: boolean;
+    };
 
 /** A built-in step instead of a snippet: runs another automation, as a whole, and waits
  *  for it. `params` gives the values its run would ask for (by its parameters' names);
@@ -160,6 +168,26 @@ export interface Automation {
    *  nodes whose predecessors are all done run side by side, up to this many — so two
    *  independent branches run in parallel. */
   maxParallel?: number;
+}
+
+/** What a command runner (a local, WSL or remote command) resolves with — never a
+ *  rejection. `output`/`ok`/`error` are all a plain snippet node needs; the rest says
+ *  more where the runner knows it, which an If node's command uses to tell a "no" (the
+ *  command ran and exited non-zero) from a command that never ran to its end. */
+export interface ExecResult {
+  /** Combined stdout+stderr (see `NodeResult.output`). */
+  output: string;
+  /** Exit code 0 (or, remotely, none reported — see `SshSession.runShell`). */
+  ok: boolean;
+  /** Why not, when `!ok`. */
+  error?: string;
+  stdout?: string;
+  stderr?: string;
+  /** The command's exit code; `null` when it never exited by itself (it couldn't be
+   *  started, was killed, or the connection failed). Unset: the runner didn't say. */
+  exitCode?: number | null;
+  /** Stopped for running longer than its timeout. */
+  timedOut?: boolean;
 }
 
 export type NodeStatus = 'success' | 'failed' | 'skipped';

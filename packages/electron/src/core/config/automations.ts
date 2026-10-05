@@ -4,7 +4,7 @@ import { dirname } from 'node:path';
 import { parse, stringify } from 'smol-toml';
 
 import { automationsConfigPath } from './platform.js';
-import type { Automation, AutomationEdge, AutomationNode, AutomationParam, AutomationParamKind, NodeTarget } from '../automation/types.js';
+import type { Automation, AutomationEdge, AutomationNode, AutomationParam, AutomationParamKind, IfCondition, NodeTarget } from '../automation/types.js';
 import { parseGitHubStep } from '../automation/githubStep.js';
 import { parseAutomationCall } from '../automation/callStep.js';
 import { paramKind, parseIfBranch, parseIfCondition } from '../automation/ifCondition.js';
@@ -79,7 +79,10 @@ function automationNodeToToml(node: AutomationNode): Record<string, unknown> {
     out.upload = upload;
   }
   if (node.github !== undefined) out.github = { ...node.github };
-  if (node.condition !== undefined) out.condition = { ...node.condition };
+  if (node.condition !== undefined) {
+    const { debug, ...condition } = node.condition as IfCondition & { debug?: boolean };
+    out.condition = debug === true ? { ...condition, debug } : condition;
+  }
   if (node.call !== undefined) out.call = { automation: node.call.automation, params: { ...node.call.params } };
   if (node.target === 'wsl' && node.wslDistro) out.wslDistro = node.wslDistro;
   if (node.position !== undefined) out.position = { x: node.position.x, y: node.position.y };

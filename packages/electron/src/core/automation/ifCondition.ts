@@ -22,7 +22,8 @@ export function parseIfCondition(raw: unknown, ctx: string): IfCondition {
   }
   if (o.kind === 'command') {
     if (typeof o.timeoutSecs !== 'number' || !(o.timeoutSecs > 0)) throw new Error(`${ctx}.timeoutSecs: expected a positive number`);
-    return { kind: 'command', command: text('command'), timeoutSecs: o.timeoutSecs };
+    // `debug` only when on, so a saved file without it round-trips unchanged.
+    return { kind: 'command', command: text('command'), timeoutSecs: o.timeoutSecs, ...(o.debug === true ? { debug: true } : {}) };
   }
   throw new Error(`${ctx}.kind: must be "compare" or "command"`);
 }

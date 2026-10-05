@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { Client, type AnyAuthMethod, type ClientChannel, type ConnectConfig } from 'ssh2';
 
 import type { Host } from './client.js';
+import type { ExecResult } from '../automation/types.js';
 import { ConnectionPool, type Lease } from './connectionPool.js';
 import { checkKnownHosts, hostPattern, learnKnownHost } from './knownHosts.js';
 import { connectReporter, reportConnectStage, withoutConnectProgress } from './connectProgress.js';
@@ -180,7 +181,7 @@ export class SshSession {
     cmd: string,
     timeoutMs: number = EXEC_TIMEOUT_MS,
     signal?: AbortSignal
-  ): Promise<{ output: string; ok: boolean; error?: string }> {
+  ): Promise<ExecResult> {
     const { channel, exitCode } = await this.execChannel(cmd);
 
     return new Promise((resolve) => {
@@ -204,29 +205,39 @@ export class SshSession {
       else signal?.addEventListener('abort', onAbort, { once: true });
       const stopListening = (): void => signal?.removeEventListener('abort', onAbort);
 
-      const collect = (data: Buffer): void => void chunks.push(data);
-      channel.on('data', collect);
-      channel.stderr.on('data', collect);
+      // Both streams as they came (`output`), and each on its own.
+      const outChunks: Buffer[] = [];
+      const errChunks: Buffer[] = [];
+      const collect = (into: Buffer[]) => (data: Buffer): void => {
+        chunks.push(data);
+        into.push(data);
+      };
+      channel.on('data', collect(outChunks));
+      channel.stderr.on('data', collect(errChunks));
+      const streams = (): { output: string; stdout: string; stderr: string } => ({
+        output: Buffer.concat(chunks).toString('utf-8'),
+        stdout: Buffer.concat(outChunks).toString('utf-8'),
+        stderr: Buffer.concat(errChunks).toString('utf-8')
+      });
       channel.on('close', () => {
         clearTimeout(timer);
         stopListening();
-        const output = Buffer.concat(chunks).toString('utf-8');
         if (signal?.aborted) {
-          resolve({ output, ok: false, error: 'canceled' });
+          resolve({ ...streams(), ok: false, error: 'canceled', exitCode: null });
           return;
         }
         if (timedOut) {
-          resolve({ output, ok: false, error: `command timed out after ${Math.round(timeoutMs / 1000)}s` });
+          resolve({ ...streams(), ok: false, error: `command timed out after ${Math.round(timeoutMs / 1000)}s`, exitCode: null, timedOut: true });
           return;
         }
         const code = exitCode();
         const ok = code === undefined || code === 0;
-        resolve({ output, ok, error: ok ? undefined : `remote command exited with status ${code}` });
+        resolve({ ...streams(), ok, ...(code !== undefined ? { exitCode: code } : {}), error: ok ? undefined : `remote command exited with status ${code}` });
       });
       channel.on('error', (err: Error) => {
         clearTimeout(timer);
         stopListening();
-        resolve({ output: Buffer.concat(chunks).toString('utf-8'), ok: false, error: err.message });
+        resolve({ ...streams(), ok: false, error: err.message, exitCode: null });
       });
     });
   }

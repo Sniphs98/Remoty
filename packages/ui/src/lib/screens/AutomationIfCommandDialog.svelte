@@ -78,7 +78,7 @@
       <span class="min-w-0 flex-1">
         <h2 class="truncate text-sm font-semibold">If {label ? `“${label}”` : ''} — command</h2>
         <span class="block truncate text-xs text-faint">
-          Succeeds (exit code 0) → yes; fails or times out → no · type {'{{'} for placeholders
+          Exit code 0 → yes; any other → no; a timeout fails the node · type {'{{'} for placeholders
         </span>
       </span>
     </header>

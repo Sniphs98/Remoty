@@ -51,8 +51,20 @@ describe('runLocalCommand', () => {
     const elapsed = Date.now() - start;
     expect(result.ok).toBe(false);
     expect(result.error).toMatch(/timed out/);
+    expect(result).toMatchObject({ timedOut: true, exitCode: null });
     // Resolved promptly — proof the process was actually killed, not just abandoned.
     expect(elapsed).toBeLessThan(5000);
+  });
+
+  it('keeps stdout and stderr apart too, with the exit code', async () => {
+    const cmd = await nodeCommand("console.log('out'); console.error('err'); process.exit(2);");
+    const result = await runLocalCommand(cmd, 5000);
+    expect(result).toMatchObject({ ok: false, exitCode: 2 });
+    expect(result.timedOut).toBeUndefined();
+    expect(result.stdout?.trim()).toBe('out');
+    expect(result.stderr?.trim()).toBe('err');
+    const ok = await runLocalCommand(await nodeCommand("console.log('fine');"), 5000);
+    expect(ok).toMatchObject({ ok: true, exitCode: 0, stderr: '' });
   });
 });
 

@@ -75,6 +75,9 @@
 
   const row =
     'space-y-1.5 rounded-lg bg-surface-inset px-3 py-2 text-sm';
+  // An If command's report — what it printed, and its answer — runs over several lines.
+  const reportBlock =
+    'max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-surface px-2 py-1.5 font-mono text-[11px] text-muted';
   const outputBlock =
     'mt-1.5 max-h-28 overflow-auto whitespace-pre-wrap break-words rounded bg-surface px-2 py-1.5 font-mono text-[11px] text-muted';
 </script>
@@ -114,19 +117,23 @@
 {#if run.progress?.[nodeId]?.length}
                   <ul class="space-y-0.5 text-[11px] text-muted">
                     {#each run.progress[nodeId].slice(-6) as line, i (i)}
-                      <li class="break-words">
-                        {#each parts(line) as part, j (j)}
-                          {#if part.url}
-                            <button type="button" class="underline decoration-dotted hover:text-fg" onclick={() => void openExternal(part.text)}>{part.text}</button>
-                          {:else}{part.text}{/if}
-                        {/each}
-                        {#if uploadStatus(line)}
-                          {@const up = uploadStatus(line)!}
-                          <div class="mt-1 h-1.5 overflow-hidden rounded-full bg-surface" role="progressbar" aria-valuenow={up.kind === 'sending' ? up.percent : 100} aria-valuemin={0} aria-valuemax={100} aria-label="Upload progress" data-upload={up.kind}>
-                            <div class="h-full rounded-full transition-[width] duration-300 {up.kind === 'done' ? 'bg-status-ok' : 'bg-accent'} {up.kind === 'finishing' ? 'upload-finishing' : ''}" style="width: {up.kind === 'sending' ? up.percent : 100}%"></div>
-                          </div>
-                        {/if}
-                      </li>
+                      {#if line.includes('\n')}
+                        <li><pre class={reportBlock} use:stickToBottom>{line}</pre></li>
+                      {:else}
+                        <li class="break-words">
+                          {#each parts(line) as part, j (j)}
+                            {#if part.url}
+                              <button type="button" class="underline decoration-dotted hover:text-fg" onclick={() => void openExternal(part.text)}>{part.text}</button>
+                            {:else}{part.text}{/if}
+                          {/each}
+                          {#if uploadStatus(line)}
+                            {@const up = uploadStatus(line)!}
+                            <div class="mt-1 h-1.5 overflow-hidden rounded-full bg-surface" role="progressbar" aria-valuenow={up.kind === 'sending' ? up.percent : 100} aria-valuemin={0} aria-valuemax={100} aria-label="Upload progress" data-upload={up.kind}>
+                              <div class="h-full rounded-full transition-[width] duration-300 {up.kind === 'done' ? 'bg-status-ok' : 'bg-accent'} {up.kind === 'finishing' ? 'upload-finishing' : ''}" style="width: {up.kind === 'sending' ? up.percent : 100}%"></div>
+                            </div>
+                          {/if}
+                        </li>
+                      {/if}
                     {/each}
                   </ul>
                 {/if}
@@ -160,19 +167,23 @@
 {#if run.progress?.[result.nodeId]?.length}
                 <ul class="space-y-0.5 text-[11px] text-muted">
                   {#each run.progress[result.nodeId].slice(-6) as line, i (i)}
-                    <li class="break-words">
-                      {#each parts(line) as part, j (j)}
-                        {#if part.url}
-                          <button type="button" class="underline decoration-dotted hover:text-fg" onclick={() => void openExternal(part.text)}>{part.text}</button>
-                        {:else}{part.text}{/if}
-                      {/each}
-                      {#if uploadStatus(line)}
-                        {@const up = uploadStatus(line)!}
-                        <div class="mt-1 h-1.5 overflow-hidden rounded-full bg-surface" role="progressbar" aria-valuenow={up.kind === 'sending' ? up.percent : 100} aria-valuemin={0} aria-valuemax={100} aria-label="Upload progress" data-upload={up.kind}>
-                          <div class="h-full rounded-full transition-[width] duration-300 {up.kind === 'done' ? 'bg-status-ok' : 'bg-accent'} {up.kind === 'finishing' ? 'upload-finishing' : ''}" style="width: {up.kind === 'sending' ? up.percent : 100}%"></div>
-                        </div>
-                      {/if}
-                    </li>
+                    {#if line.includes('\n')}
+                      <li><pre class={reportBlock} use:stickToBottom>{line}</pre></li>
+                    {:else}
+                      <li class="break-words">
+                        {#each parts(line) as part, j (j)}
+                          {#if part.url}
+                            <button type="button" class="underline decoration-dotted hover:text-fg" onclick={() => void openExternal(part.text)}>{part.text}</button>
+                          {:else}{part.text}{/if}
+                        {/each}
+                        {#if uploadStatus(line)}
+                          {@const up = uploadStatus(line)!}
+                          <div class="mt-1 h-1.5 overflow-hidden rounded-full bg-surface" role="progressbar" aria-valuenow={up.kind === 'sending' ? up.percent : 100} aria-valuemin={0} aria-valuemax={100} aria-label="Upload progress" data-upload={up.kind}>
+                            <div class="h-full rounded-full transition-[width] duration-300 {up.kind === 'done' ? 'bg-status-ok' : 'bg-accent'} {up.kind === 'finishing' ? 'upload-finishing' : ''}" style="width: {up.kind === 'sending' ? up.percent : 100}%"></div>
+                          </div>
+                        {/if}
+                      </li>
+                    {/if}
                   {/each}
                 </ul>
               {/if}

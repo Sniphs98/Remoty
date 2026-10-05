@@ -126,6 +126,25 @@ describe('saveAutomations / loadAutomations round trip', () => {
     expect(await loadAutomations(path)).toEqual(original);
   });
 
+  it('round-trips an if command\'s debug output, and writes nothing for it when off', async () => {
+    const node = (id: string, debug?: boolean) => ({
+      id,
+      snippetId: '',
+      condition: { kind: 'command' as const, command: 'test -f x', timeoutSecs: 20, ...(debug === undefined ? {} : { debug }) },
+      label: id,
+      continueOnError: false,
+      target: 'local' as const
+    });
+    await saveAutomations([automation({ nodes: [node('on', true), node('off', false), node('unset')] })], path);
+    expect(await readFile(path, 'utf-8')).not.toMatch(/debug = false/);
+    const [loaded] = await loadAutomations(path);
+    expect(loaded.nodes.map((n) => n.condition)).toEqual([
+      { kind: 'command', command: 'test -f x', timeoutSecs: 20, debug: true },
+      { kind: 'command', command: 'test -f x', timeoutSecs: 20 },
+      { kind: 'command', command: 'test -f x', timeoutSecs: 20 }
+    ]);
+  });
+
   it('round-trips a node that runs another automation, with the values it hands on', async () => {
     const original = [
       automation({
