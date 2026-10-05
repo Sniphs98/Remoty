@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { commandInFolder, fillFilePlaceholder, usesFilePlaceholder, FILE_PLACEHOLDER } from './snippetPlaceholders';
+import {
+  commandInFolder,
+  fillFilePlaceholder,
+  snippetsForTarget,
+  usesFilePlaceholder,
+  FILE_PLACEHOLDER
+} from './snippetPlaceholders';
 
 describe('fillFilePlaceholder', () => {
   it('substitutes the path, shell-quoted', () => {
@@ -37,5 +43,22 @@ describe('commandInFolder', () => {
 
   it('runs it as it is without a folder', () => {
     expect(commandInFolder('uptime', '')).toBe('uptime');
+  });
+});
+
+describe('snippetsForTarget', () => {
+  const snippets = [
+    { name: 'unzip', command: 'unzip {{file}}' },
+    { name: 'prune', command: 'docker system prune -f' },
+    { name: 'tail', command: 'tail -f {{file}}' },
+    { name: 'pull', command: 'git pull' }
+  ];
+
+  it('offers only {{file}} snippets for a right-clicked entry', () => {
+    expect(snippetsForTarget(snippets, 'entry').map((s) => s.name)).toEqual(['unzip', 'tail']);
+  });
+
+  it('offers only file-less snippets for empty space', () => {
+    expect(snippetsForTarget(snippets, 'folder').map((s) => s.name)).toEqual(['prune', 'pull']);
   });
 });

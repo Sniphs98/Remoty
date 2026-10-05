@@ -200,9 +200,9 @@ async function boot(
               return Promise.resolve([
                 { name: 'unzip', params: [{ name: 'archive', kind: 'text' }], nodes: [], edges: [] }
               ]);
-            // The Snippet library behind "Run snippet with this file" — one snippet that
-            // wants the clicked path, one that ignores it (both are offered, since a
-            // snippet without the placeholder still runs in the current directory).
+            // The Snippet library behind the remote right-click menus — one snippet that
+            // wants the clicked path (offered on a file), one that doesn't (offered on
+            // empty space, run in the folder being browsed).
             case 'list_snippets':
               return Promise.resolve([
                 { id: 's1', name: 'extract', command: 'tar -xf {{file}}', timeoutSecs: 300 },
@@ -597,20 +597,20 @@ test('Open falls back to a read-only preview for a binary file the editor refuse
   await expect(page.getByRole('dialog', { name: 'Edit /photo.png' })).toHaveCount(0);
 });
 
-test('"Run snippet with this file" types the command into the drawer terminal, path substituted', async ({ page }) => {
+test('right-clicking a file lists its {{file}} snippets in the menu and runs one, path substituted', async ({ page }) => {
   await boot(page);
   await page.getByTitle('files on web-1').click();
   const remotePane = page.getByRole('region', { name: 'web-1', exact: true });
   await expect(remotePane.getByText('app.log')).toBeVisible();
 
   await remotePane.getByTitle('app.log').click({ button: 'right' });
-  await page.getByRole('menu').getByRole('menuitem', { name: 'Run snippet with this file…' }).click();
 
-  // The library is fetched async, so a second menu replaces the first. A snippet that
-  // uses the file says so, which is how the user tells the two apart.
-  const snippetMenu = page.getByRole('menu');
-  await expect(snippetMenu.getByRole('menuitem', { name: 'disk free' })).toBeVisible();
-  await snippetMenu.getByRole('menuitem', { name: 'extract (uses this file)' }).click();
+  // The snippets sit right in the menu, and only those that take the file: "disk free"
+  // has no {{file}}, so it belongs to the empty-space menu instead.
+  const menu = page.getByRole('menu');
+  await expect(menu.getByText('Snippets', { exact: true })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'disk free' })).toHaveCount(0);
+  await menu.getByRole('menuitem', { name: 'extract' }).click();
 
   // Picking it opens the drawer (one gesture) and runs the command there, after the
   // drawer's own `cd` — with the clicked path shell-quoted in place of {{file}}.
@@ -619,30 +619,7 @@ test('"Run snippet with this file" types the command into the drawer terminal, p
     .toContain("tar -xf '/app.log'");
 });
 
-test('a snippet without the file placeholder still runs, in the current directory', async ({ page }) => {
-  await boot(page);
-  await page.getByTitle('files on web-1').click();
-  const remotePane = page.getByRole('region', { name: 'web-1', exact: true });
-  await expect(remotePane.getByText('app.log')).toBeVisible();
-
-  await remotePane.getByTitle('app.log').click({ button: 'right' });
-  await page.getByRole('menu').getByRole('menuitem', { name: 'Run snippet with this file…' }).click();
-  const snippetMenu = page.getByRole('menu');
-  await expect(snippetMenu.getByRole('menuitem', { name: 'disk free' })).toBeVisible();
-  await snippetMenu.getByRole('menuitem', { name: 'disk free' }).click();
-
-  await expect
-    .poll(() => page.evaluate(() => (window as unknown as { __terminalCommands: string[] }).__terminalCommands))
-    .toContain('df -h');
-
-  // The drawer cd's into the pane's directory first, so "current directory" is honest.
-  const commands = await page.evaluate(() =>
-    (window as unknown as { __terminalCommands: string[] }).__terminalCommands
-  );
-  expect(commands.some((c) => c.startsWith('cd '))).toBe(true);
-});
-
-test('"Run snippet here" on empty space offers the snippets without a file and runs one in this folder', async ({ page }) => {
+test('right-clicking empty space lists the snippets without a file and runs one in this folder', async ({ page }) => {
   await boot(page);
   await page.getByTitle('files on web-1').click();
   const remotePane = page.getByRole('region', { name: 'web-1', exact: true });
@@ -651,7 +628,6 @@ test('"Run snippet here" on empty space offers the snippets without a file and r
   const region = page.getByRole('region', { name: 'web-1 file list' });
   const box = await region.boundingBox();
   await region.click({ button: 'right', position: { x: 10, y: (box?.height ?? 200) - 10 } });
-  await page.getByRole('menu').getByRole('menuitem', { name: 'Run snippet here…' }).click();
 
   // Only what doesn't need a file: "extract" wants {{file}}, so it isn't offered here.
   const snippetMenu = page.getByRole('menu');
@@ -673,7 +649,6 @@ test('a multi-line snippet saved with Windows line ends is typed into the drawer
   const region = page.getByRole('region', { name: 'web-1 file list' });
   const box = await region.boundingBox();
   await region.click({ button: 'right', position: { x: 10, y: (box?.height ?? 200) - 10 } });
-  await page.getByRole('menu').getByRole('menuitem', { name: 'Run snippet here…' }).click();
   await page.getByRole('menu').getByRole('menuitem', { name: 'report' }).click();
 
   // One line each, as typed — no `\r` (each would be one more Enter), no empty lines.
