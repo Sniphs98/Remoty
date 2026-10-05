@@ -77,6 +77,15 @@ describe('paletteItems — filter & sections', () => {
     expect(items.map((i) => i.kind)).toEqual(['newSnippet', 'ifStep', 'callStep', 'uploadStep', 'githubRun', 'githubDownload', 'snippet']);
     expect(items[6]).toMatchObject({ kind: 'snippet', snippet: { name: 'Deploy' } });
   });
+  it('option picker lists only the given options, searching label and detail', () => {
+    const options = [
+      { id: 'a', label: 'extract', detail: 'tar -xf {{file}}' },
+      { id: 'b', label: 'disk free', detail: 'df -h' }
+    ];
+    expect(paletteItems('pickOption', [], [], [], '', options).map((i) => i.kind)).toEqual(['option', 'option']);
+    expect(paletteItems('pickOption', [], [], [], 'df', options)).toEqual([{ kind: 'option', option: options[1] }]);
+    expect(paletteItems('pickOption', [], [], [], 'zzz', options)).toEqual([]);
+  });
 });
 
 describe('paletteSignature — stable across volatile updates', () => {
@@ -196,5 +205,18 @@ describe('palette store — modes & picker resolution', () => {
 
     palette.chooseSnippet(snippet('Build'));
     await expect(pendingHost).resolves.toBeNull();
+  });
+
+  it('pickOption() resolves with the chosen id, or null when dismissed', async () => {
+    const request = { options: [{ id: 'a', label: 'extract' }], placeholder: 'Run a snippet…', empty: 'None.' };
+    const pending = palette.pickOption(request);
+    expect(get(palette)).toEqual({ open: true, mode: 'pickOption', request });
+    palette.chooseOption('a');
+    await expect(pending).resolves.toBe('a');
+    expect(get(palette).open).toBe(false);
+
+    const dismissed = palette.pickOption(request);
+    palette.close();
+    await expect(dismissed).resolves.toBeNull();
   });
 });
