@@ -1,9 +1,9 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { decodeWslOutput, parseDistroList, wslArgs, wslUploadPathScript, wslUploadSource } from './wslExec.js';
+import { decodeWslOutput, parseDistroList, wslArgs, wslCommandEnv, wslUploadPathScript, wslUploadSource } from './wslExec.js';
 
 describe('wslExec', () => {
   it('reads wsl.exe output whether it came as UTF-16 or UTF-8', () => {
@@ -84,5 +84,71 @@ describe('wslUploadSource', () => {
     await expect(
       wslUploadSource(undefined, '/tmp/x', async () => ({ output: 'no such file in WSL: /tmp/x\n', ok: false, error: 'exited with code 1' }))
     ).rejects.toThrow('no such file in WSL: /tmp/x');
+  });
+});
+
+describe('wslCommandEnv', () => {
+  it('hands WSL the command with Linux line ends, shared through WSLENV', () => {
+    const env = wslCommandEnv('echo "hello"\r\necho "world"\r\nexit 0\r\n', { WSLENV: 'FOO/p' });
+    expect(env.REMOTY_COMMAND).toBe('echo "hello"\necho "world"\nexit 0\n');
+    expect(env.WSLENV).toBe('FOO/p:REMOTY_COMMAND/u');
+    expect(wslCommandEnv('echo one\necho two', {}).REMOTY_COMMAND).toBe('echo one\necho two');
+  });
+});
+
+// What WSL does with it: bash, started as `wsl.exe` starts it (the arguments after
+// `--exec`), with the environment `wsl.exe` passes on. Run in this machine's bash.
+describe.skipIf(process.platform === 'win32')('a WSL command in bash', () => {
+  function runInBash(command: string, env: NodeJS.ProcessEnv = wslCommandEnv(command)) {
+    const [bash, ...args] = wslArgs(undefined).slice(1);
+    const r = spawnSync(bash, args, { env, encoding: 'utf8' });
+    return { stdout: r.stdout, stderr: r.stderr, exitCode: r.status };
+  }
+
+  it('runs a command with Windows line ends as one with Linux ones', () => {
+    const command = 'echo "hello"\r\n' + 'echo "world"\r\n' + 'exit 0\r\n';
+    const r = runInBash(command);
+    expect(r.stdout).toBe('hello\nworld\n');
+    expect(r.stderr).not.toContain("$'\\r'");
+    expect(r.exitCode).toBe(0);
+    // Without it, what was seen: bash takes the `\r` for part of each line.
+    const raw = runInBash(command, { ...process.env, REMOTY_COMMAND: command });
+    expect(raw.stdout).toContain('hello\r');
+    expect(raw.stderr).toContain('numeric argument required');
+  });
+
+  it('runs a command with Linux line ends, and a one-line one, as before', () => {
+    expect(runInBash('echo "hello"\necho "world"\nexit 0\n')).toMatchObject({ stdout: 'hello\nworld\n', exitCode: 0 });
+    expect(runInBash('test -d / && echo yes || echo no')).toMatchObject({ stdout: 'yes\n', exitCode: 0 });
+    expect(runInBash('exit 3')).toMatchObject({ exitCode: 3 });
+  });
+
+  it('runs if, case, pipes and || across lines with Windows line ends', () => {
+    const command = [
+      'ARCHIVE="/no/such/archive.tar.gz"',
+      'EXPECTED="ghcr.io/example/frontend:v3.0.0"',
+      'echo "ARCHIVE=$ARCHIVE"',
+      '',
+      'if [ -n "$EXPECTED" ]; then',
+      '  echo "expected set"',
+      'fi',
+      '',
+      'printf "a\\nb\\nc\\n" | grep -c . | tr -d " "',
+      'MANIFEST="ghcr.io/example/frontend:v3.0.0"',
+      'case "$MANIFEST" in',
+      '  *"$EXPECTED"*)',
+      '    echo match',
+      '    ;;',
+      '  *)',
+      '    exit 1',
+      '    ;;',
+      'esac',
+      'test -f "$ARCHIVE" || exit 4',
+      ''
+    ].join('\r\n');
+    const r = runInBash(command);
+    expect(r.stdout).toBe('ARCHIVE=/no/such/archive.tar.gz\nexpected set\n3\nmatch\n');
+    expect(r.stderr).toBe('');
+    expect(r.exitCode).toBe(4);
   });
 });

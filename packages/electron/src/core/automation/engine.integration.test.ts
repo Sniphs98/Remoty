@@ -179,3 +179,49 @@ describe('snippet engine against the test target', () => {
     }
   });
 });
+
+// A command from the editor on Windows has `\r\n` line ends; the host's shell must see
+// only `\n` (SshSession.runShell normalizes it).
+describe('multi-line commands with Windows line ends on the test target', () => {
+  const crlf = (...lines: string[]): string => lines.join('\r\n') + '\r\n';
+
+  it('runs over a real SSH connection: stdout complete, exit code kept, no stray \\r', async () => {
+    const session = await SshSession.connect(testTargetHost());
+    try {
+      const ok = await session.runShell(crlf('echo "hello"', 'echo "world"', 'exit 0'), 10_000);
+      expect(ok).toMatchObject({ ok: true, exitCode: 0, stdout: 'hello\nworld\n', stderr: '' });
+      const structures = await session.runShell(
+        crlf('if [ -d / ]; then', '  echo dir', 'fi', 'case x in', '  x) echo case ;;', 'esac', 'printf "a\\nb\\n" | wc -l | tr -d " "', 'false || exit 7'),
+        10_000
+      );
+      expect(structures).toMatchObject({ ok: false, exitCode: 7, stdout: 'dir\ncase\n2\n', stderr: '' });
+    } finally {
+      session.disconnect();
+    }
+  });
+
+  it('answers a remote if node by its exit code', async () => {
+    const answer = async (code: number): Promise<string> => {
+      const automation: Automation = {
+        name: 'it-if-crlf',
+        params: [{ name: 'host', kind: 'host' }],
+        nodes: [
+          {
+            id: 'i',
+            snippetId: '',
+            label: 'check',
+            continueOnError: false,
+            target: 'remote',
+            condition: { kind: 'command', command: crlf('echo checking', 'case x in', `  x) exit ${code} ;;`, 'esac'), timeoutSecs: 10, debug: true }
+          }
+        ],
+        edges: []
+      };
+      const [result] = await runAutomation(automation, new Map(), { host: 'ssh-test-target' }, deps());
+      expect(result.status).toBe('success');
+      return result.output;
+    };
+    expect(await answer(0)).toBe('yes');
+    expect(await answer(1)).toBe('no');
+  });
+});

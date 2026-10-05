@@ -89,3 +89,18 @@ describe('runLocalCommand canceled', () => {
     expect(Date.now() - started).toBeLessThan(10_000);
   });
 });
+
+// Off Windows a local node runs in `sh`, which — like bash in WSL — took a Windows line
+// end's `\r` for part of each line.
+describe.skipIf(process.platform === 'win32')('runLocalCommand with Windows line ends', () => {
+  it('runs a multi-line command saved with them', async () => {
+    const result = await runLocalCommand('echo "hello"\r\necho "world"\r\nexit 0\r\n', 5000);
+    expect(result).toMatchObject({ ok: true, exitCode: 0, stdout: 'hello\nworld\n', stderr: '' });
+  });
+
+  it('keeps the exit code of if, case, pipes and || across such lines', async () => {
+    const command = ['if [ -d / ]; then', '  echo dir', 'fi', 'case x in', '  x) echo case ;;', 'esac', 'printf "a\\nb\\n" | wc -l | tr -d " "', 'false || exit 7', ''].join('\r\n');
+    const result = await runLocalCommand(command, 5000);
+    expect(result).toMatchObject({ ok: false, exitCode: 7, stdout: 'dir\ncase\n2\n', stderr: '' });
+  });
+});

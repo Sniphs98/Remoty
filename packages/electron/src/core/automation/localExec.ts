@@ -2,6 +2,7 @@ import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
+import { normalizeShellCommand } from './shellCommand.js';
 import type { ExecResult } from './types.js';
 
 /** A local file an upload node names: absolute as given, `~/…` in the home folder, and
@@ -80,7 +81,9 @@ export async function runLocalCommand(
     // `spawn` with a shell rather than `exec`, which doesn't pass `detached` on: off
     // Windows the command leads its own process group, so a timeout or a cancel stops
     // everything it started, not just the shell.
-    const child = spawn(command, {
+    // Off Windows the shell is `sh`, which reads a `\r` as part of the line (see
+    // `normalizeShellCommand`); cmd.exe on Windows is left the command as typed.
+    const child = spawn(process.platform === 'win32' ? command : normalizeShellCommand(command), {
       shell: true,
       // In the home folder: the app's own working directory is wherever it was started
       // from — the install folder, often not writable — so `docker save -o image.tar`

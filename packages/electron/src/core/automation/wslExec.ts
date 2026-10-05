@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { homedir } from 'node:os';
 import { killOnAbort } from './localExec.js';
+import { normalizeShellCommand } from './shellCommand.js';
 import type { ExecResult } from './types.js';
 
 /**
@@ -53,6 +54,13 @@ export function wslArgs(distro: string | undefined): string[] {
   return [...(distro ? ['-d', distro] : []), '--exec', 'bash', '-lc', `eval "$${COMMAND_VAR}"`];
 }
 
+/** The environment `wsl.exe` runs with: `command` (with Linux line ends — see
+ *  `normalizeShellCommand`) in `REMOTY_COMMAND`, shared into WSL through `WSLENV`. */
+export function wslCommandEnv(command: string, base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const wslenv = [base.WSLENV, `${COMMAND_VAR}/u`].filter(Boolean).join(':');
+  return { ...base, [COMMAND_VAR]: normalizeShellCommand(command), WSLENV: wslenv, WSL_UTF8: '1' };
+}
+
 export async function runWslCommand(
   distro: string | undefined,
   command: string,
@@ -60,7 +68,6 @@ export async function runWslCommand(
   signal?: AbortSignal
 ): Promise<ExecResult> {
   if (process.platform !== 'win32') return { output: '', ok: false, error: 'WSL is only available on Windows', exitCode: null };
-  const wslenv = [process.env.WSLENV, `${COMMAND_VAR}/u`].filter(Boolean).join(':');
   return new Promise((resolve) => {
     let release = (): void => {};
     const child = execFile(
@@ -68,7 +75,7 @@ export async function runWslCommand(
       wslArgs(distro),
       {
         cwd: homedir(),
-        env: { ...process.env, [COMMAND_VAR]: command, WSLENV: wslenv, WSL_UTF8: '1' },
+        env: wslCommandEnv(command),
         timeout: timeoutMs,
         killSignal: 'SIGTERM',
         windowsHide: true,

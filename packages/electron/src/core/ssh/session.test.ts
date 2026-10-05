@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { describe, expect, it } from 'vitest';
 import { defaultHost, type Host } from './client.js';
@@ -82,5 +83,51 @@ describe('exit status', () => {
     await expect(sessionExiting(7).runCommandChecked('exit 7')).rejects.toThrow('exited with status 7');
     await expect(sessionExiting(7).runShell('exit 7')).resolves.toMatchObject({ ok: false, error: 'remote command exited with status 7' });
     await expect(sessionExiting(0).runShell('true')).resolves.toMatchObject({ ok: true });
+  });
+});
+
+// A command from the editor on Windows has `\r\n` line ends. An SSH server runs an exec
+// request as `$SHELL -c <command>`; this fake one does just that, in this machine's bash.
+describe.skipIf(process.platform === 'win32')('runShell with Windows line ends', () => {
+  const received: string[] = [];
+  function sessionRunningInBash(): SshSession {
+    const client = {
+      exec(cmd: string, cb: (err: Error | undefined, channel: EventEmitter) => void) {
+        received.push(cmd);
+        const channel = Object.assign(new EventEmitter(), { stderr: new EventEmitter(), destroy() {}, close() {}, signal() {} });
+        cb(undefined, channel);
+        const child = spawn('bash', ['-c', cmd]);
+        child.stdout.on('data', (d: Buffer) => channel.emit('data', d));
+        child.stderr.on('data', (d: Buffer) => channel.stderr.emit('data', d));
+        child.on('close', (code) => {
+          channel.emit('exit', code);
+          channel.emit('close');
+        });
+      }
+    };
+    const Session = SshSession as unknown as new (connection: { client: typeof client }) => SshSession;
+    return new Session({ client });
+  }
+  const crlf = (...lines: string[]): string => lines.join('\r\n') + '\r\n';
+
+  it('sends the host the command with Linux line ends', async () => {
+    const result = await sessionRunningInBash().runShell('echo "hello"\r\n' + 'echo "world"\r\n' + 'exit 0\r\n', 10_000);
+    expect(received.at(-1)).toBe('echo "hello"\necho "world"\nexit 0\n');
+    expect(result).toMatchObject({ ok: true, exitCode: 0, stdout: 'hello\nworld\n', stderr: '' });
+    expect(result.output).not.toContain("$'\\r'");
+  });
+
+  it('keeps the exit code of if, case, pipes and || across such lines', async () => {
+    const result = await sessionRunningInBash().runShell(
+      crlf('if [ -d / ]; then', '  echo dir', 'fi', 'case x in', '  x) echo case ;;', 'esac', 'printf "a\\nb\\n" | wc -l | tr -d " "', 'false || exit 7'),
+      10_000
+    );
+    expect(result).toMatchObject({ ok: false, exitCode: 7, stdout: 'dir\ncase\n2\n', stderr: '' });
+  });
+
+  it('runs a one-line command as it always did', async () => {
+    const result = await sessionRunningInBash().runShell('test -d / && echo yes || echo no', 10_000);
+    expect(received.at(-1)).toBe('test -d / && echo yes || echo no');
+    expect(result).toMatchObject({ ok: true, exitCode: 0, stdout: 'yes\n' });
   });
 });
