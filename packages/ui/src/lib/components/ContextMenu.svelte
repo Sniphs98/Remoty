@@ -12,9 +12,6 @@
     disabled?: boolean;
     /** Destructive actions (Delete) render in the critical-status colour. */
     danger?: boolean;
-    /** Starts a new group: a divider and this heading render above the item (the SFTP
-     *  menus list the matching snippets under a "Snippets" heading this way). */
-    section?: string;
   }
 
   let { x, y, items, onClose }: { x: number; y: number; items: ContextMenuItem[]; onClose: () => void } =
@@ -72,10 +69,6 @@
   style="left: {pos?.left ?? x}px; top: {pos?.top ?? y}px;"
 >
   {#each items as item, i (i)}
-    {#if item.section}
-      {#if i > 0}<div role="separator" class="my-1 border-t border-default"></div>{/if}
-      <div class="px-3 pb-0.5 pt-1 text-xs font-medium uppercase tracking-wide text-muted">{item.section}</div>
-    {/if}
     <button
       type="button"
       role="menuitem"

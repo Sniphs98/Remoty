@@ -29,13 +29,52 @@ export function usesFilePlaceholder(command: string): boolean {
   return command.includes(FILE_PLACEHOLDER);
 }
 
+/** Every `{{…}}` placeholder in the command, as written (`{{file}}`, `{{params.host}}`). */
+function placeholdersIn(command: string): string[] {
+  return command.match(/\{\{[^{}\n]*\}\}/g) ?? [];
+}
+
 /** What a right-click in the SFTP browser landed on: an entry (file or folder), whose
  *  path can fill `{{file}}`, or empty space, where only the folder being browsed is on
- *  offer. Each gets the snippets that fit it — `{{file}}` ones for an entry, the rest
- *  for empty space — so the menu never offers a snippet that can't use the click. */
+ *  offer. The placeholders in a snippet's command decide where it fits, since the click
+ *  is all the browser can fill in:
+ *  - an entry gets the snippets whose only placeholder is `{{file}}` (`cat {{file}}`)
+ *  - empty space gets the ones with no placeholder at all (`df -h`)
+ *  A snippet that also wants something else (`{{params.…}}`, `{{nodes.…}}`) fits
+ *  neither — nothing here could fill it in — and stays an automation building block. */
 export type SnippetTarget = 'entry' | 'folder';
 
 export function snippetsForTarget<T extends { command: string }>(snippets: T[], target: SnippetTarget): T[] {
-  const wantsFile = target === 'entry';
-  return snippets.filter((s) => usesFilePlaceholder(s.command) === wantsFile);
+  return snippets.filter((s) => {
+    const placeholders = placeholdersIn(s.command);
+    return target === 'entry'
+      ? placeholders.length > 0 && placeholders.every((p) => p === FILE_PLACEHOLDER)
+      : placeholders.length === 0;
+  });
+}
+
+/** The Snippets tab's sections, by what a snippet can be run on — the same split as the
+ *  SFTP browser's pickers, so the tab shows where each one will turn up. Empty sections
+ *  are left out; each keeps the library's own order. */
+export interface SnippetSection<T> {
+  key: 'file' | 'general' | 'automation';
+  title: string;
+  hint: string;
+  snippets: T[];
+}
+
+export function snippetSections<T extends { command: string }>(snippets: T[]): SnippetSection<T>[] {
+  const file = snippetsForTarget(snippets, 'entry');
+  const general = snippetsForTarget(snippets, 'folder');
+  const sections: SnippetSection<T>[] = [
+    { key: 'file', title: 'Files & folders', hint: 'Only {{file}} — right-click a file or folder in SFTP', snippets: file },
+    { key: 'general', title: 'General', hint: 'No placeholders — right-click empty space in SFTP', snippets: general },
+    {
+      key: 'automation',
+      title: 'Automations only',
+      hint: 'Uses parameters or node outputs, so it only runs inside an automation',
+      snippets: snippets.filter((s) => !file.includes(s) && !general.includes(s))
+    }
+  ];
+  return sections.filter((s) => s.snippets.length > 0);
 }

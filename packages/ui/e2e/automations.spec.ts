@@ -257,6 +257,35 @@ test('the sidebar has separate Automations and Snippets entries into the same sc
   await expect(page.getByRole('button', { name: 'Snippets', exact: true })).toHaveAttribute('aria-current', 'page');
 });
 
+test('the snippet library is sorted into sections by placeholder, each collapsible', async ({ page }) => {
+  await boot(page);
+  await page.getByRole('button', { name: 'Automations', exact: true }).click();
+  await page.getByRole('button', { name: 'Manage snippets' }).click();
+
+  async function addSnippet(name: string, command: string): Promise<void> {
+    await page.getByRole('button', { name: 'New snippet' }).first().click();
+    const editor = page.getByRole('dialog', { name: 'New snippet' });
+    await editor.getByLabel('Name').fill(name);
+    await fillCommand(editor, command);
+    await editor.getByRole('button', { name: 'Add snippet' }).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+  }
+  await addSnippet('Show file', 'cat {{file}}');
+  await addSnippet('Disk', 'df -h');
+  await addSnippet('Deploy', 'deploy {{params.env}}');
+
+  const files = page.getByRole('button', { name: /^Files & folders/ });
+  await expect(files).toBeVisible();
+  await expect(page.getByRole('button', { name: /^General/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Automations only/ })).toBeVisible();
+
+  await expect(page.getByText('Show file', { exact: true })).toBeVisible();
+  await files.click();
+  await expect(files).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.getByText('Show file', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('Disk', { exact: true })).toBeVisible();
+});
+
 test('build snippets, wire an automation, run it, and see success/failed/skipped per node', async ({ page }) => {
   await boot(page);
 

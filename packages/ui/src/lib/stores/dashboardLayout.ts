@@ -2,7 +2,8 @@ import { writable } from 'svelte/store';
 
 // Which dashboard sections are collapsed (keys from screens/dashboardSections.ts). A
 // per-machine view preference, so localStorage is enough: losing it just opens every
-// section again. The Remote Desktop screen has its own set under its own key.
+// section again. The Remote Desktop screen and the Snippets tab have their own sets
+// under their own keys.
 function load(storageKey: string): Set<string> {
   try {
     const raw = JSON.parse(localStorage.getItem(storageKey) ?? '[]');
@@ -38,6 +39,7 @@ function createCollapsedSections(storageKey: string) {
 
 export const collapsedSections = createCollapsedSections('remoty-dashboard-collapsed');
 export const rdpCollapsedSections = createCollapsedSections('remoty-rdp-collapsed');
+export const snippetCollapsedSections = createCollapsedSections('remoty-snippets-collapsed');
 
 // The dashboard's folders, kept so a folder stays until it's removed — also while it
 // has no host in it (just made with "New folder", or its last card dragged out). A

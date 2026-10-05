@@ -27,7 +27,7 @@
   const pickable = $derived(
     $palette.mode === 'pickHost' && $onlineOnly ? $hosts.filter((h) => $statuses.get(h.name)?.kind === 'connected') : $hosts
   );
-  const items = $derived(paletteItems($palette.mode, pickable, $sessions, $snippets, query));
+  const items = $derived(paletteItems($palette.mode, pickable, $sessions, $snippets, query, $palette.request?.options));
   // A value-stable key over the result set: unchanged by a background status flip (same
   // ids, new objects), so the reset effect below can ignore those (see the effect).
   const itemsSignature = $derived(paletteSignature(items));
@@ -35,14 +35,20 @@
   const firstHost = $derived(items.findIndex((it) => it.kind === 'host'));
 
   const placeholder = $derived(
-    $palette.mode === 'pickHost'
+    $palette.mode === 'pickOption'
+      ? ($palette.request?.placeholder ?? 'Search…')
+      : $palette.mode === 'pickHost'
       ? 'Pick a host…'
       : $palette.mode === 'pickSnippet'
         ? 'Pick or create a snippet…'
         : 'Search hosts and sessions…'
   );
   const emptyMessage = $derived(
-    $palette.mode === 'pickHost'
+    $palette.mode === 'pickOption'
+      ? query
+        ? 'No matches.'
+        : ($palette.request?.empty ?? 'Nothing to pick.')
+      : $palette.mode === 'pickHost'
       ? $onlineOnly && $hosts.length > 0
         ? query
           ? 'No online host matches.'
@@ -131,6 +137,9 @@
       case 'callStep':
         palette.chooseSnippet('call');
         break;
+      case 'option':
+        palette.chooseOption(item.option.id);
+        break;
     }
   }
 
@@ -190,7 +199,9 @@
     class="fixed inset-0 z-50 flex items-start justify-center px-4 pt-[14vh]"
     role="dialog"
     aria-modal="true"
-    aria-label={$palette.mode === 'pickHost'
+    aria-label={$palette.mode === 'pickOption'
+      ? ($palette.request?.placeholder ?? 'Pick').replace(/…$/, '')
+      : $palette.mode === 'pickHost'
       ? 'Pick a host'
       : $palette.mode === 'pickSnippet'
         ? 'Pick a snippet'
@@ -270,6 +281,14 @@
                   <span class="shrink-0 truncate font-mono text-xs {selected === i ? '' : 'text-faint'}">
                     {displayReference(item.host.user)}@{displayHostname(item.host.hostname, $streamerMode)}
                   </span>
+                {:else if item.kind === 'option'}
+                  <Icon name="play" size={16} />
+                  <span class="min-w-0 flex-1 truncate font-medium">{item.option.label}</span>
+                  {#if item.option.detail}
+                    <span class="max-w-[50%] shrink-0 truncate font-mono text-xs {selected === i ? '' : 'text-faint'}">
+                      {item.option.detail}
+                    </span>
+                  {/if}
                 {:else if item.kind === 'snippet'}
                   <Icon name="automations" size={16} />
                   <span class="min-w-0 flex-1 truncate font-medium">{item.snippet.name}</span>

@@ -172,8 +172,9 @@
             {/each}
           </ul>
           <p class="border-t border-default px-4 py-3 text-[11px] text-faint">
-            Where it runs (this machine, WSL or a host) is set per node in the automation. Without {'{{file}}'}, a snippet
-            is also under Run snippet here… in the SFTP browser and runs in that folder.
+            Where it runs (this machine, WSL or a host) is set per node in the automation. In the SFTP browser, a
+            snippet whose only placeholder is {'{{file}}'} is offered on a right-clicked file or folder, and one with no
+            placeholder on empty space, run in that folder.
           </p>
         </section>
       </div>

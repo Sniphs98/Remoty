@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   commandInFolder,
   fillFilePlaceholder,
+  snippetSections,
   snippetsForTarget,
   usesFilePlaceholder,
   FILE_PLACEHOLDER
@@ -60,5 +61,32 @@ describe('snippetsForTarget', () => {
 
   it('offers only file-less snippets for empty space', () => {
     expect(snippetsForTarget(snippets, 'folder').map((s) => s.name)).toEqual(['prune', 'pull']);
+  });
+
+  it('leaves out snippets with any other placeholder, which the browser cannot fill', () => {
+    const withParams = [
+      { name: 'copy', command: 'scp {{file}} {{params.target}}' },
+      { name: 'deploy', command: 'deploy {{params.env}}' },
+      { name: 'after', command: 'echo {{nodes.build.output}}' }
+    ];
+    expect(snippetsForTarget(withParams, 'entry')).toEqual([]);
+    expect(snippetsForTarget(withParams, 'folder')).toEqual([]);
+  });
+});
+
+describe('snippetSections', () => {
+  it('sorts the library into file, general and automation-only sections, leaving empty ones out', () => {
+    const snippets = [
+      { name: 'unzip', command: 'unzip {{file}}' },
+      { name: 'deploy', command: 'deploy {{params.env}}' },
+      { name: 'df', command: 'df -h' },
+      { name: 'copy', command: 'scp {{file}} {{params.target}}' }
+    ];
+    expect(snippetSections(snippets).map((s) => [s.key, s.snippets.map((x) => x.name)])).toEqual([
+      ['file', ['unzip']],
+      ['general', ['df']],
+      ['automation', ['deploy', 'copy']]
+    ]);
+    expect(snippetSections([{ name: 'df', command: 'df -h' }]).map((s) => s.key)).toEqual(['general']);
   });
 });

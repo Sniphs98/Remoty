@@ -23,6 +23,8 @@
   import { lastError } from '$lib/stores/notifications';
   import { activeEntity } from '$lib/stores/activeEntity';
   import { emptyForm, formFromSnippet } from './snippetForm';
+  import { snippetSections } from './snippetPlaceholders';
+  import { snippetCollapsedSections } from '$lib/stores/dashboardLayout';
   import SnippetEditor from './SnippetEditor.svelte';
   import AutomationRunDialog from './AutomationRunDialog.svelte';
   import Modal from '$lib/components/Modal.svelte';
@@ -204,53 +206,86 @@
         </button>
       </div>
     {:else}
+      <!-- Sorted by what each snippet can be run on, like the dashboard's folders:
+           collapsible, and remembered per machine. -->
       <div class="min-h-0 flex-1 overflow-y-auto">
-        <div class="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(19rem,1fr))]">
-          {#each $snippets as snippet (snippet.id)}
-            <Surface class="flex flex-col gap-3 p-5">
-              <div class="min-w-0">
-                <div class="flex flex-wrap items-center gap-2">
-                  <span class="truncate font-medium" title={snippet.name}>{snippet.name}</span>
-                </div>
-                <div class="mt-1 truncate font-mono text-xs text-muted" title={snippet.command}>
-                  {snippet.command}
-                </div>
+        {#each snippetSections($snippets) as section (section.key)}
+          {@const collapsed = $snippetCollapsedSections.has(section.key)}
+          <div class="mb-6">
+            <button
+              type="button"
+              class="mb-3 flex w-full min-w-0 items-center gap-2 rounded-lg px-1 py-1 text-left text-sm font-semibold text-muted transition hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+              aria-expanded={!collapsed}
+              title={collapsed ? `Show ${section.title}` : `Hide ${section.title}`}
+              onclick={() => snippetCollapsedSections.toggle(section.key)}
+            >
+              <svg
+                class="h-3 w-3 shrink-0 transition-transform {collapsed ? '-rotate-90' : ''}"
+                viewBox="0 0 12 12"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M3 4.5 6 7.5 9 4.5" />
+              </svg>
+              <Icon name="folder" size={14} />
+              <span class="truncate">{section.title}</span>
+              <span class="rounded-full bg-surface-inset px-1.5 text-[11px] font-medium text-faint">{section.snippets.length}</span>
+              <span class="hidden truncate text-xs font-normal text-faint sm:inline">{section.hint}</span>
+            </button>
+            {#if !collapsed}
+              <div class="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(19rem,1fr))]">
+                {#each section.snippets as snippet (snippet.id)}
+                <Surface class="flex flex-col gap-3 p-5">
+                  <div class="min-w-0">
+                    <div class="flex flex-wrap items-center gap-2">
+                      <span class="truncate font-medium" title={snippet.name}>{snippet.name}</span>
+                    </div>
+                    <div class="mt-1 truncate font-mono text-xs text-muted" title={snippet.command}>
+                      {snippet.command}
+                    </div>
+                  </div>
+                  <div class="flex flex-wrap items-center gap-1.5">
+                    <button
+                      type="button"
+                      class={iconBtn}
+                      title="Edit {snippet.name}"
+                      aria-label="Edit {snippet.name}"
+                      onclick={() => (dialog = { kind: 'editSnippet', snippet })}
+                    >
+                      <Icon name="edit" size={15} />
+                    </button>
+                    <button
+                      type="button"
+                      class={iconBtn}
+                      title="Export {snippet.name} to a file"
+                      aria-label="Export {snippet.name}"
+                      onclick={() => exportSnippetAction(snippet.id)}
+                    >
+                      <Icon name="download" size={15} />
+                    </button>
+                    <button
+                      type="button"
+                      class={iconBtn}
+                      title="Delete {snippet.name}"
+                      aria-label="Delete {snippet.name}"
+                      onclick={() => {
+                        deleteError = null;
+                        dialog = { kind: 'deleteSnippet', snippet };
+                      }}
+                    >
+                      <Icon name="trash" size={15} />
+                    </button>
+                  </div>
+                </Surface>
+                {/each}
               </div>
-              <div class="flex flex-wrap items-center gap-1.5">
-                <button
-                  type="button"
-                  class={iconBtn}
-                  title="Edit {snippet.name}"
-                  aria-label="Edit {snippet.name}"
-                  onclick={() => (dialog = { kind: 'editSnippet', snippet })}
-                >
-                  <Icon name="edit" size={15} />
-                </button>
-                <button
-                  type="button"
-                  class={iconBtn}
-                  title="Export {snippet.name} to a file"
-                  aria-label="Export {snippet.name}"
-                  onclick={() => exportSnippetAction(snippet.id)}
-                >
-                  <Icon name="download" size={15} />
-                </button>
-                <button
-                  type="button"
-                  class={iconBtn}
-                  title="Delete {snippet.name}"
-                  aria-label="Delete {snippet.name}"
-                  onclick={() => {
-                    deleteError = null;
-                    dialog = { kind: 'deleteSnippet', snippet };
-                  }}
-                >
-                  <Icon name="trash" size={15} />
-                </button>
-              </div>
-            </Surface>
-          {/each}
-        </div>
+            {/if}
+          </div>
+        {/each}
       </div>
     {/if}
   {:else if $automations.length === 0}

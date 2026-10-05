@@ -7,8 +7,27 @@ import type { Session } from './sessions';
 // (tech-gui.md §2): `navigate` lists open sessions + hosts (jump to a session, or open
 // a host); `pickHost` is scoped to "pick a host for this action" and hands the choice
 // back to its caller; `pickSnippet` is the same idea for "pick (or create) an
-// Snippet for this automation node" (AutomationEditor.svelte's "+"/drag-to-empty).
-export type PaletteMode = 'navigate' | 'pickHost' | 'pickSnippet';
+// Snippet for this automation node" (AutomationEditor.svelte's "+"/drag-to-empty);
+// `pickOption` is a plain searchable list the caller fills itself (the SFTP browser's
+// "Run snippet…" / "Run automation…") and hands back the chosen option's id.
+export type PaletteMode = 'navigate' | 'pickHost' | 'pickSnippet' | 'pickOption';
+
+/** One row of a `pickOption` list. */
+export interface PickOption {
+  id: string;
+  label: string;
+  /** Shown dimmed on the right, and searched too (a snippet's command). */
+  detail?: string;
+}
+
+/** What `pickOption()` shows: the rows, plus the search field's placeholder and the
+ *  line shown when nothing is (or nothing matches). */
+export interface PickOptionRequest {
+  options: PickOption[];
+  placeholder: string;
+  /** Shown when the list itself is empty, before any search. */
+  empty: string;
+}
 
 // A selectable row. Sessions surface only in the navigator; a picker mode is scoped to
 // its own kind. `newSnippet` is a pinned, always-matching row — not a real
@@ -27,7 +46,8 @@ export type PaletteItem =
   /** Pinned too: the built-in If, which runs one way or another. */
   | { kind: 'ifStep' }
   /** Pinned too: run another automation. */
-  | { kind: 'callStep' };
+  | { kind: 'callStep' }
+  | { kind: 'option'; option: PickOption };
 
 function hostHaystack(h: HostDto): string {
   return `${h.name} ${h.hostname} ${h.user} ${h.tags.join(' ')}`.toLowerCase();
@@ -39,6 +59,10 @@ function sessionHaystack(s: Session): string {
 
 function snippetHaystack(a: SnippetDto): string {
   return a.name.toLowerCase();
+}
+
+function optionHaystack(o: PickOption): string {
+  return `${o.label} ${o.detail ?? ''}`.toLowerCase();
 }
 
 // All whitespace-separated tokens must appear (AND), so "web prod" narrows to a host
@@ -59,8 +83,12 @@ export function paletteItems(
   hosts: HostDto[],
   sessions: Session[],
   snippets: SnippetDto[],
-  query: string
+  query: string,
+  options: PickOption[] = []
 ): PaletteItem[] {
+  if (mode === 'pickOption') {
+    return options.filter((o) => matches(optionHaystack(o), query)).map((option) => ({ kind: 'option', option }));
+  }
   if (mode === 'pickSnippet') {
     const snippetRows: PaletteItem[] = snippets
       .filter((a) => matches(snippetHaystack(a), query))
@@ -111,6 +139,8 @@ export function paletteSignature(items: PaletteItem[]): string {
           return 'if-step';
         case 'callStep':
           return 'call-step';
+        case 'option':
+          return `o:${it.option.id}`;
       }
     })
     .join('\u0000');
@@ -139,6 +169,8 @@ export function hostStatusDot(status: ConnectionStatusDto | undefined): Status {
 export interface PaletteState {
   open: boolean;
   mode: PaletteMode;
+  /** Set while `mode` is `'pickOption'`. */
+  request?: PickOptionRequest;
 }
 
 /** What `pickSnippet()` resolves with: an existing Snippet, `'upload'` (the pinned
@@ -148,20 +180,24 @@ export type SnippetPickResult = SnippetDto | 'new' | 'upload' | 'githubRun' | 'g
 
 function createPalette() {
   const { subscribe, set } = writable<PaletteState>({ open: false, mode: 'navigate' });
-  // Pending resolvers for whichever picker is in flight — at most one of the two is
-  // ever non-null, since only one mode can be open at a time, but both are settled on
-  // every open/choose/close so a caller of either never hangs when the palette moves on
-  // to something else out from under it (e.g. ⌘K opening the navigator mid-pick).
+  // Pending resolvers for whichever picker is in flight — at most one is ever non-null,
+  // since only one mode can be open at a time, but all are settled on every
+  // open/choose/close so a caller never hangs when the palette moves on to something
+  // else out from under it (e.g. ⌘K opening the navigator mid-pick).
   let pendingHost: ((host: HostDto | null) => void) | null = null;
   let pendingSnippet: ((result: SnippetPickResult) => void) | null = null;
+  let pendingOption: ((id: string | null) => void) | null = null;
 
   function settleAll(): void {
     const host = pendingHost;
     const snippet = pendingSnippet;
+    const option = pendingOption;
     pendingHost = null;
     pendingSnippet = null;
+    pendingOption = null;
     host?.(null);
     snippet?.(null);
+    option?.(null);
   }
 
   return {
@@ -184,14 +220,20 @@ function createPalette() {
       set({ open: true, mode: 'pickSnippet' });
       return new Promise((resolve) => (pendingSnippet = resolve));
     },
+    /** A searchable list of the caller's own options; resolves with the chosen
+     *  option's id, or null if dismissed. */
+    pickOption(request: PickOptionRequest): Promise<string | null> {
+      settleAll();
+      set({ open: true, mode: 'pickOption', request });
+      return new Promise((resolve) => (pendingOption = resolve));
+    },
     /** Host-picker mode: hand the chosen host back to its caller and close. Captures the
-     *  resolver *before* settling the other (idle) one — `settleAll` would otherwise
+     *  resolver *before* settling the other (idle) ones — `settleAll` would otherwise
      *  null this one out too, resolving it with `null` instead of `host`. */
     choose(host: HostDto): void {
       const resolve = pendingHost;
       pendingHost = null;
-      pendingSnippet?.(null);
-      pendingSnippet = null;
+      settleAll();
       resolve?.(host);
       set({ open: false, mode: 'navigate' });
     },
@@ -199,9 +241,16 @@ function createPalette() {
     chooseSnippet(result: SnippetDto | 'new' | 'upload' | 'githubRun' | 'githubDownload' | 'if' | 'call'): void {
       const resolve = pendingSnippet;
       pendingSnippet = null;
-      pendingHost?.(null);
-      pendingHost = null;
+      settleAll();
       resolve?.(result);
+      set({ open: false, mode: 'navigate' });
+    },
+    /** Option-picker mode: hand the chosen option's id back to its caller and close. */
+    chooseOption(id: string): void {
+      const resolve = pendingOption;
+      pendingOption = null;
+      settleAll();
+      resolve?.(id);
       set({ open: false, mode: 'navigate' });
     },
     close(): void {
