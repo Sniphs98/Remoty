@@ -2,6 +2,7 @@ import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
+import type { ExecResult } from './types.js';
 
 /** A local file an upload node names: absolute as given, `~/…` in the home folder, and
  *  anything else relative to the home folder too — where local nodes run (see
@@ -74,7 +75,7 @@ export async function runLocalCommand(
   command: string,
   timeoutMs: number,
   signal?: AbortSignal
-): Promise<{ output: string; ok: boolean; error?: string }> {
+): Promise<ExecResult> {
   return new Promise((resolve) => {
     // `spawn` with a shell rather than `exec`, which doesn't pass `detached` on: off
     // Windows the command leads its own process group, so a timeout or a cancel stops
@@ -93,6 +94,7 @@ export async function runLocalCommand(
     const stderr: Buffer[] = [];
     let size = 0;
     let stopped: string | undefined;
+    let timedOut = false;
     const stop = (reason: string): void => {
       if (stopped !== undefined) return;
       stopped = reason;
@@ -106,26 +108,30 @@ export async function runLocalCommand(
     child.stdout!.on('data', collect(stdout));
     child.stderr!.on('data', collect(stderr));
 
-    const timer = setTimeout(() => stop(`command timed out after ${Math.round(timeoutMs / 1000)}s`), timeoutMs);
+    const timer = setTimeout(() => {
+      if (stopped === undefined) timedOut = true;
+      stop(`command timed out after ${Math.round(timeoutMs / 1000)}s`);
+    }, timeoutMs);
     const onAbort = (): void => stop('canceled');
     if (signal?.aborted) onAbort();
     else signal?.addEventListener('abort', onAbort, { once: true });
 
     let settled = false;
-    const finish = (result: { output: string; ok: boolean; error?: string }): void => {
+    const finish = (result: ExecResult): void => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       signal?.removeEventListener('abort', onAbort);
       resolve(result);
     };
-    child.on('error', (err) => finish({ output: '', ok: false, error: err.message }));
+    child.on('error', (err) => finish({ output: '', ok: false, error: err.message, stdout: '', stderr: '', exitCode: null }));
     child.on('close', (code) => {
+      const out = Buffer.concat(stdout).toString('utf-8');
       const err = Buffer.concat(stderr).toString('utf-8');
-      const output = Buffer.concat(stdout).toString('utf-8') + err;
-      if (stopped !== undefined) finish({ output, ok: false, error: stopped });
-      else if (code === 0) finish({ output, ok: true });
-      else finish({ output, ok: false, error: `Command failed: ${command}${code === null ? '' : ` (exit code ${code})`}\n${err}`.trim() });
+      const result = { output: out + err, stdout: out, stderr: err };
+      if (stopped !== undefined) finish({ ...result, ok: false, error: stopped, exitCode: null, ...(timedOut ? { timedOut } : {}) });
+      else if (code === 0) finish({ ...result, ok: true, exitCode: 0 });
+      else finish({ ...result, ok: false, exitCode: code, error: `Command failed: ${command}${code === null ? '' : ` (exit code ${code})`}\n${err}`.trim() });
     });
   });
 }

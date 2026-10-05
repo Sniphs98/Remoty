@@ -1,4 +1,4 @@
-import type { Snippet, Automation, AutomationNode, GitHubStep, IfCondition, IfOperator, NodeResult } from './types.js';
+import type { Snippet, Automation, AutomationNode, ExecResult, GitHubStep, IfBranch, IfCondition, IfOperator, NodeResult, NodeTarget } from './types.js';
 
 /**
  * The Automation execution engine: an `Automation` is a DAG of `AutomationNode`s (each an
@@ -376,12 +376,54 @@ export function substituteTemplate(
   });
 }
 
+/** An If node's command, as it ran: what `ifCommandReport` tells about. */
+export interface IfCommandRun {
+  /** With its templates filled in. */
+  command: string;
+  target: NodeTarget;
+  /** For `'wsl'`: the distribution, unset for WSL's default one. */
+  wslDistro?: string;
+  /** For `'remote'`: the host. */
+  host?: string;
+  result: ExecResult;
+  /** The way the If goes — none when the command never ran to its end (a timeout). */
+  answer?: IfBranch;
+}
+
+/** The progress an If node's command leaves in the run, so a "no" says why: what the
+ *  command printed, then the answer. With `debug`, also the command as it ran, where,
+ *  its exit code, and stdout and stderr apart. */
+export function ifCommandReport(run: IfCommandRun, debug: boolean): string {
+  const { result } = run;
+  const outcome = run.answer !== undefined ? `Result: ${run.answer}` : `Result: error — ${result.error ?? 'the command did not finish'}`;
+  if (!debug) {
+    const output = result.output.trimEnd();
+    return output ? `${output}\n\n${outcome}` : outcome;
+  }
+  const lines = ['Command:', run.command.trimEnd(), ''];
+  if (run.target === 'local') lines.push('Target: local');
+  else if (run.target === 'wsl') lines.push('Target: WSL', `Distribution: ${run.wslDistro || '(default)'}`);
+  else lines.push('Target: remote', `Host: ${run.host ?? '?'}`);
+  lines.push(
+    `Exit code: ${result.exitCode === undefined ? 'not reported' : result.exitCode === null ? "none (the command didn't finish)" : result.exitCode}`
+  );
+  if (result.timedOut) lines.push('Timed out: yes');
+  const block = (name: string, text: string): string[] => ['', `${name}:`, text.trimEnd() || '(empty)'];
+  if (result.stdout !== undefined || result.stderr !== undefined) {
+    lines.push(...block('stdout', result.stdout ?? ''), ...block('stderr', result.stderr ?? ''));
+  } else {
+    lines.push(...block('output', result.output));
+  }
+  lines.push('', outcome);
+  return lines.join('\n');
+}
+
 /** Why a node stopped when the run was stopped — its error, and every later node's. */
 export const CANCELED = 'canceled';
 
 export interface RunAutomationConnection {
   /** `signal` stops the command (the run was canceled); it resolves then all the same. */
-  runShell(cmd: string, timeoutMs: number, signal?: AbortSignal): Promise<{ output: string; ok: boolean; error?: string }>;
+  runShell(cmd: string, timeoutMs: number, signal?: AbortSignal): Promise<ExecResult>;
   /** Copies the local file `from` to `to` on the host; rejects with why it failed.
    *  `onProgress` hears how far it is (bytes sent, of the file's size). */
   upload(from: string, to: string, signal?: AbortSignal, onProgress?: (done: number, total: number) => void): Promise<void>;
@@ -394,7 +436,7 @@ export interface RunAutomationDeps {
   connectHost: (hostName: string) => Promise<RunAutomationConnection>;
   /** Every runner takes the run's `signal`, which stops what it's doing when the run is
    *  canceled — a process killed, a remote command interrupted, a wait given up. */
-  runLocal: (command: string, timeoutMs: number, signal?: AbortSignal) => Promise<{ output: string; ok: boolean; error?: string }>;
+  runLocal: (command: string, timeoutMs: number, signal?: AbortSignal) => Promise<ExecResult>;
   /** A GitHub node: runs `step`, telling `report` how it's going; resolves with the node's output. */
   runGitHub: (step: GitHubStep, report: (message: string) => void, signal?: AbortSignal) => Promise<string>;
   /** A `'wsl'` node: `command` in WSL distribution `distro` (its default one when unset). */
@@ -403,7 +445,7 @@ export interface RunAutomationDeps {
     command: string,
     timeoutMs: number,
     signal?: AbortSignal
-  ) => Promise<{ output: string; ok: boolean; error?: string }>;
+  ) => Promise<ExecResult>;
   /** An upload from WSL: the path Windows reads WSL file `path` at; rejects if it isn't there. */
   wslUploadSource: (distro: string | undefined, path: string) => Promise<string>;
   /** Every automation, by name — what a "run automation" node can run. */
@@ -412,7 +454,8 @@ export interface RunAutomationDeps {
 
 export type AutomationProgressEvent =
   | { kind: 'nodeStarted'; nodeId: string; label: string }
-  /** A line of news from a long-running node (a GitHub run's progress). */
+  /** A line of news from a long-running node (a GitHub run's progress), or what an If
+   *  node's command printed (see `ifCommandReport`) — which may run over several lines. */
   | { kind: 'nodeProgress'; nodeId: string; message: string }
   | { kind: 'nodeResult'; result: NodeResult };
 
@@ -485,9 +528,12 @@ export async function runAutomation(
     });
   }
 
-  /** An If node's answer as its output: `yes` or `no`. A command that doesn't succeed —
-   *  a non-zero exit, a timeout — is a `no`; only a cancel fails the node. */
+  /** An If node's answer as its output: `yes` or `no`. A command's exit code decides —
+   *  0 is `yes`, any other `no`, and either way the node succeeded; one that never ran to
+   *  its end (a timeout, a cancel, a WSL or connection failure) fails the node. What the
+   *  command printed goes into the run's progress, so a `no` can be told apart. */
   async function evaluateCondition(
+    nodeId: string,
     node: AutomationNode,
     condition: IfCondition,
     predecessors: Map<string, NodeResult>,
@@ -507,7 +553,13 @@ export async function runAutomation(
           ? await deps.runWsl(node.wslDistro || undefined, command, timeoutMs, signal)
           : await (await connectionFor(hostName!)).runShell(command, timeoutMs, signal);
     if (signal?.aborted) return { output: '', ok: false, error: CANCELED };
-    return { output: result.ok ? 'yes' : 'no', ok: true };
+    // `exitCode` unset: a runner that doesn't tell — a failure is a `no`, as it always was.
+    const unfinished = !result.ok && (result.timedOut === true || result.exitCode === null);
+    const answer: IfBranch | undefined = unfinished ? undefined : result.ok ? 'yes' : 'no';
+    const run: IfCommandRun = { command, target: node.target, wslDistro: node.wslDistro || undefined, host: hostName, result, answer };
+    onProgress?.({ kind: 'nodeProgress', nodeId, message: ifCommandReport(run, condition.debug === true) });
+    if (answer === undefined) return { output: '', ok: false, error: result.error ?? 'the command did not finish' };
+    return { output: answer, ok: true };
   }
 
   /** A "run automation" node: runs the automation as a nested run with the values given,
@@ -609,7 +661,7 @@ export async function runAutomation(
         if (node.call !== undefined) {
           exec = await untilCanceled(runCall(nodeId, node, predecessorsByLabel));
         } else if (node.condition !== undefined) {
-          exec = await untilCanceled(evaluateCondition(node, node.condition, predecessorsByLabel, nodeHostName));
+          exec = await untilCanceled(evaluateCondition(nodeId, node, node.condition, predecessorsByLabel, nodeHostName));
         } else if (node.github !== undefined) {
           const step = substituteGitHubStep(node.github, predecessorsByLabel, paramValues);
           const output = await untilCanceled(deps.runGitHub(step, (message) => onProgress?.({ kind: 'nodeProgress', nodeId, message }), signal));

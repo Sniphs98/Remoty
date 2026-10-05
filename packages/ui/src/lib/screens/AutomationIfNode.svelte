@@ -4,7 +4,9 @@
   // "no" one — run; the others are skipped, and so is what only they lead to. Laid out
   // like the upload and GitHub nodes, edited in place via `updateNodeData`.
   //   - Compare: a text (usually {{params.…}} or {{nodes.….output}}) against another.
-  //   - Command succeeds: runs a command where the node says; exit code 0 is "yes".
+  //   - Command succeeds: runs a command where the node says; exit code 0 is "yes",
+  //     any other "no". What it prints shows in the run; "Debug output" adds the command
+  //     as it ran, where, its exit code, and stdout and stderr apart.
   // Its output is `yes` or `no`, so a later node can use it too.
   import { getContext } from 'svelte';
   import { Handle, Position, useSvelteFlow, type NodeProps } from '@xyflow/svelte';
@@ -160,7 +162,7 @@
           placeholder="test -f image.tar.gz"
           spellcheck="false"
           aria-label="Command"
-          title="Succeeds (exit code 0) → yes; fails or times out → no"
+          title="Exit code 0 → yes; any other exit code → no. A timeout fails the node."
         />
       {/if}
       <button
@@ -207,6 +209,18 @@
         </div>
       </label>
     {/if}
+    <label class="nodrag flex items-center gap-1.5 text-[11px] text-muted" title="Also show the command as it ran, where, its exit code, and stdout and stderr apart">
+      <input
+        type="checkbox"
+        checked={condition.debug === true}
+        onchange={(e) => {
+          const { debug: _off, ...rest } = condition;
+          setCondition(e.currentTarget.checked ? { ...rest, debug: true } : rest);
+        }}
+        class="accent-current"
+      />
+      Debug output
+    </label>
   {/if}
 
   <label class="nodrag flex items-center gap-1.5 text-[11px] text-muted">

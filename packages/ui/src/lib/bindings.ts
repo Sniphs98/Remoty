@@ -422,10 +422,17 @@ export type AutomationEdgeDto = { from: string; to: string; /** Out of an If nod
 /** Which of an If node's two ways out an edge is. */
 export type IfBranchDto = 'yes' | 'no';
 export type IfOperatorDto = 'equals' | 'notEquals' | 'contains' | 'notContains' | 'isEmpty' | 'notEmpty';
-/** An If node's question: compare texts, or whether a command succeeds (where the node runs). */
+/** An If node's question: compare texts, or whether a command succeeds (where the node runs) —
+ *  exit code 0 is yes, any other no; what it prints shows in the run's progress. */
 export type IfConditionDto =
   | { kind: 'compare'; left: string; op: IfOperatorDto; right: string }
-  | { kind: 'command'; command: string; timeoutSecs: number };
+  | {
+      kind: 'command';
+      command: string;
+      timeoutSecs: number;
+      /** Also show the command as it ran, where, its exit code, and stdout/stderr apart. */
+      debug?: boolean | null;
+    };
 /** One placement of a reusable Snippet into an Automation — or a built-in upload step. */
 /** Runs another automation as a whole; `params` are the values its run asks for, by name. */
 export type AutomationCallDto = { automation: string; params: Record<string, string> };
