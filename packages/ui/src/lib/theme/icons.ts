@@ -31,4 +31,5 @@ export type IconName =
   | 'eye-off'
   | 'monitor'
   | 'clock'
-  | 'branch';
+  | 'branch'
+  | 'maximize';

@@ -141,15 +141,38 @@
       />
     {/if}
   {:else}
-    <input
-      value={condition.command}
-      oninput={(e) => setCondition({ ...condition, command: e.currentTarget.value })}
-      class={input}
-      placeholder="test -f image.tar.gz"
-      spellcheck="false"
-      aria-label="Command"
-      title="Succeeds (exit code 0) → yes; fails or times out → no"
-    />
+    <!-- A one-line command is typed here; a longer one opens in a dialog (a text field
+         would drop its line breaks), as does the expand button for any. -->
+    <div class="flex items-start gap-1">
+      {#if condition.command.includes('\n')}
+        <button
+          type="button"
+          class="nodrag nopan max-h-[4.5rem] min-w-0 flex-1 overflow-hidden whitespace-pre-wrap break-words rounded bg-surface-inset px-2 py-1 text-left font-mono text-xs text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+          title="Edit command"
+          aria-label="Command (opens editor)"
+          onclick={() => actions.editIfCommand(id)}>{condition.command}</button
+        >
+      {:else}
+        <input
+          value={condition.command}
+          oninput={(e) => setCondition({ ...condition, command: e.currentTarget.value })}
+          class={input}
+          placeholder="test -f image.tar.gz"
+          spellcheck="false"
+          aria-label="Command"
+          title="Succeeds (exit code 0) → yes; fails or times out → no"
+        />
+      {/if}
+      <button
+        type="button"
+        class="nodrag nopan grid h-6 w-6 shrink-0 place-items-center rounded text-muted transition hover:bg-surface-inset hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+        title="Edit in a larger editor"
+        aria-label="Edit command in a larger editor"
+        onclick={() => actions.editIfCommand(id)}
+      >
+        <Icon name="maximize" size={12} />
+      </button>
+    </div>
     <div class="nodrag nopan flex items-center gap-1.5 text-[11px] text-muted">
       <span class="shrink-0">Runs</span>
       <div class="ml-auto flex gap-0.5 rounded bg-surface-inset p-0.5">
