@@ -19,7 +19,7 @@
   import { lastError } from '$lib/stores/notifications';
   import { terminalOpen, terminalWrite, terminalResize, terminalClose } from '$lib/ipc/commands';
   import { shouldFadeTop } from './terminalFade';
-  import { chunkBytes } from './terminalInput';
+  import { chunkBytes, typedCommandLine } from './terminalInput';
   import { shellQuote } from './shellQuote';
   import { copySelection, isCopyChord, isMacPlatform, isPasteChord, pasteFromClipboard } from './terminalClipboard';
   import { terminalCopyOnSelect, terminalGpu, terminalRightClick } from '$lib/stores/terminalPrefs';
@@ -50,7 +50,7 @@
       queuedCommand = command;
       return;
     }
-    sendInput(ENCODER.encode(`${command}\n`));
+    sendInput(ENCODER.encode(typedCommandLine(command)));
   }
 
   // Copy/paste: the chord depends on the platform, and copy has to read xterm's own
@@ -213,7 +213,7 @@
       // drawer and running are one gesture — see SftpView's runSnippetHere), sent
       // after the cd so it runs in the directory they were looking at.
       if (queuedCommand !== undefined) {
-        sendInput(ENCODER.encode(`${queuedCommand}\n`));
+        sendInput(ENCODER.encode(typedCommandLine(queuedCommand)));
         queuedCommand = undefined;
       }
 

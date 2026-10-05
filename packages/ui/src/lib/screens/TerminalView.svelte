@@ -24,7 +24,7 @@
   import { lastError } from '$lib/stores/notifications';
   import { terminalOpen, terminalOpenLocal, terminalWrite, terminalResize, terminalClose } from '$lib/ipc/commands';
   import { shouldFadeTop } from './terminalFade';
-  import { chunkBytes } from './terminalInput';
+  import { chunkBytes, typedCommandLine } from './terminalInput';
   import { shellQuote } from './shellQuote';
   import { copySelection, isCopyChord, isMacPlatform, isPasteChord, pasteFromClipboard } from './terminalClipboard';
   import { terminalCopyOnSelect, terminalGpu, terminalRightClick } from '$lib/stores/terminalPrefs';
@@ -295,7 +295,7 @@
       if (host?.defaultPath && !isOnePasswordReference(host.defaultPath)) sendInput(ENCODER.encode(`cd ${shellQuote(host.defaultPath)}\n`));
       // The host's startup command, typed in after that `cd` — visible in the terminal and
       // its history, exactly as if the user had entered it.
-      if (host?.startupCommand) sendInput(ENCODER.encode(`${host.startupCommand}\n`));
+      if (host?.startupCommand) sendInput(ENCODER.encode(typedCommandLine(host.startupCommand)));
 
       // Text keystrokes/paste are UTF-8; onBinary carries raw 8-bit sequences
       // (e.g. legacy mouse reporting) that must go byte-for-byte, not re-encoded.

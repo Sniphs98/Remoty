@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { chunkBytes, INPUT_CHUNK } from './terminalInput';
+import { chunkBytes, INPUT_CHUNK, typedCommandLine } from './terminalInput';
 
 const seq = (n: number) => new Uint8Array(Array.from({ length: n }, (_, i) => i & 0xff));
 
@@ -47,5 +47,18 @@ describe('chunkBytes — IPC-safe slices', () => {
   it('passes an already self-contained keystroke through untouched', () => {
     const data = seq(3);
     expect(chunkBytes(data, 8)[0]).toBe(data);
+  });
+});
+
+describe('typedCommandLine', () => {
+  it('types a command saved with Windows line ends with Linux ones, one Enter at the end', () => {
+    expect(typedCommandLine('echo "hello"\r\necho "world"\r\n')).toBe('echo "hello"\necho "world"\n');
+    expect(typedCommandLine('cat <<EOF\r\nline one\r\nline two\r\nEOF')).toBe('cat <<EOF\nline one\nline two\nEOF\n');
+    expect(typedCommandLine('a\rb')).toBe('a\nb\n');
+  });
+
+  it('types a one-line command as before', () => {
+    expect(typedCommandLine('tmux attach || tmux')).toBe('tmux attach || tmux\n');
+    expect(typedCommandLine('df -h\n\n')).toBe('df -h\n');
   });
 });

@@ -459,6 +459,19 @@ test("a host's startup command runs when its terminal opens, after the cd into i
     .toEqual(["cd '/var/www'", 'tmux attach || tmux']);
 });
 
+test('a startup command saved with Windows line ends is typed with Linux ones, one Enter per line', async ({ page }) => {
+  // As a hosts.toml edited on Windows, or a host imported from there, can carry it.
+  await boot(page, { webOneStartupCommand: 'cd /srv/app\r\ntmux attach || tmux\r\n' });
+  await page.getByTitle('sh on web-1').click();
+  await expect(page.locator('.xterm-rows')).toContainText('remoty-ready');
+
+  await expect
+    .poll(() => page.evaluate(() => (window as unknown as CommandsWindow).__terminalCommands))
+    .toEqual(['cd /srv/app', 'tmux attach || tmux']);
+  const written = await page.evaluate(() => (window as unknown as { __terminalWrites: { text: string } }).__terminalWrites.text);
+  expect(written).not.toContain('\r');
+});
+
 test('a host without a startup command runs nothing when its terminal opens', async ({ page }) => {
   await boot(page);
   await page.getByTitle('sh on web-1').click();

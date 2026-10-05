@@ -125,6 +125,16 @@ describe.skipIf(process.platform === 'win32')('runShell with Windows line ends',
     expect(result).toMatchObject({ ok: false, exitCode: 7, stdout: 'dir\ncase\n2\n', stderr: '' });
   });
 
+  // The app's own commands (key setup, monitoring, discovery) go the same way.
+  it('sends runCommand and runCommandChecked to the host with Linux line ends too', async () => {
+    const session = sessionRunningInBash();
+    // (`runCommand` gives its output line by line — what the parsers read — hence the trim.)
+    expect((await session.runCommand(crlf('echo "hello"', 'echo "world"'))).trim()).toBe('hello\nworld');
+    expect(received.at(-1)).toBe('echo "hello"\necho "world"\n');
+    expect((await session.runCommandChecked(crlf('if [ -d / ]; then', '  echo ok', 'fi'))).trim()).toBe('ok');
+    await expect(session.runCommandChecked(crlf('echo before', 'exit 3'))).rejects.toThrow('exited with status 3');
+  });
+
   it('runs a one-line command as it always did', async () => {
     const result = await sessionRunningInBash().runShell('test -d / && echo yes || echo no', 10_000);
     expect(received.at(-1)).toBe('test -d / && echo yes || echo no');
