@@ -28,3 +28,14 @@ export function commandInFolder(command: string, folder: string): string {
 export function usesFilePlaceholder(command: string): boolean {
   return command.includes(FILE_PLACEHOLDER);
 }
+
+/** What a right-click in the SFTP browser landed on: an entry (file or folder), whose
+ *  path can fill `{{file}}`, or empty space, where only the folder being browsed is on
+ *  offer. Each gets the snippets that fit it — `{{file}}` ones for an entry, the rest
+ *  for empty space — so the menu never offers a snippet that can't use the click. */
+export type SnippetTarget = 'entry' | 'folder';
+
+export function snippetsForTarget<T extends { command: string }>(snippets: T[], target: SnippetTarget): T[] {
+  const wantsFile = target === 'entry';
+  return snippets.filter((s) => usesFilePlaceholder(s.command) === wantsFile);
+}

@@ -47,7 +47,7 @@
     sftpDefaultPath
   } from '$lib/ipc/commands';
   import { isOnePasswordReference } from './onePasswordRef';
-  import { commandInFolder, fillFilePlaceholder, usesFilePlaceholder } from './snippetPlaceholders';
+  import { commandInFolder, fillFilePlaceholder, snippetsForTarget, type SnippetTarget } from './snippetPlaceholders';
 
   let { session, active }: { session: Session; active: boolean } = $props();
 
@@ -562,43 +562,74 @@
     };
   }
 
-  /** Offers the Snippet library for this file, then types the chosen command into the
-   *  drawer terminal on this host — opening the drawer first if it's closed, so one
-   *  click both reveals the shell and runs the thing. `{{file}}` in the command becomes
-   *  the clicked path; snippets without it just run in the current directory, which is
-   *  why they're offered too rather than filtered out. Remote pane only: the drawer is
-   *  a shell *on the host*, so a local path would mean nothing in it. */
-  async function openFileSnippetPicker(entry: FileEntryDto, x: number, y: number): Promise<void> {
-    let snippets: SnippetDto[];
+  // Snippets sit right in the remote right-click menu, under their own heading, filtered
+  // by what was clicked: an entry (file or folder) gets the snippets with `{{file}}`,
+  // filled with its path; empty space gets the ones without, run in the folder being
+  // browsed (`docker system prune`, `git pull`). Either way the command is typed into
+  // the drawer terminal on this host — opening it first if it's closed, so one click
+  // both reveals the shell and runs the thing. Remote pane only: the drawer is a shell
+  // *on the host*, so a local path would mean nothing in it.
+  const INLINE_SNIPPETS = 8;
+
+  /** The Snippet library, fetched fresh each time a menu opens (the Snippets screen may
+   *  have changed it since). A failed fetch just leaves the snippets out of the menu. */
+  async function loadSnippets(): Promise<SnippetDto[]> {
     try {
-      snippets = await listSnippets();
+      return await listSnippets();
     } catch (err) {
       lastError.set(errMsg(err));
-      return;
+      return [];
     }
-    contextMenu = {
-      side: 'remote',
-      x,
-      y,
-      items:
-        snippets.length === 0
-          ? [{ label: 'No snippets saved yet', onSelect: () => {}, disabled: true }]
-          : snippets.map((snippet) => ({
-              label: usesFilePlaceholder(snippet.command) ? `${snippet.name} (uses this file)` : snippet.name,
-              icon: 'play' as const,
-              onSelect: () => {
-                const command = fillFilePlaceholder(snippet.command, entry.path);
-                showTerminal = true;
-                // `bind:this` is only populated once the drawer has actually mounted,
-                // which is after this tick — the drawer then queues the command itself
-                // until its shell finishes connecting.
-                void tick().then(() => terminalDrawer?.runCommand(command));
-              }
-            }))
-    };
   }
 
-  function remoteEntryMenuItems(currentView: NonNullable<typeof view>, entry: FileEntryDto, event: MouseEvent): ContextMenuItem[] {
+  function runSnippetInDrawer(command: string): void {
+    showTerminal = true;
+    // `bind:this` is only populated once the drawer has actually mounted, which is
+    // after this tick — the drawer then queues the command itself until its shell
+    // finishes connecting.
+    void tick().then(() => terminalDrawer?.runCommand(command));
+  }
+
+  /** The "Snippets" group for a menu: the ones that fit `target`, run against `path`.
+   *  A long library shows its first few inline and the rest behind "More snippets…",
+   *  which reopens the menu at the same spot with the whole matching list. */
+  function snippetMenuItems(
+    snippets: SnippetDto[],
+    target: SnippetTarget,
+    path: string,
+    x: number,
+    y: number,
+    all = false
+  ): ContextMenuItem[] {
+    const matching = snippetsForTarget(snippets, target);
+    const shown = all || matching.length <= INLINE_SNIPPETS ? matching : matching.slice(0, INLINE_SNIPPETS - 1);
+    const items: ContextMenuItem[] = shown.map((snippet) => ({
+      label: snippet.name,
+      icon: 'play',
+      onSelect: () =>
+        runSnippetInDrawer(
+          target === 'entry' ? fillFilePlaceholder(snippet.command, path) : commandInFolder(snippet.command, path)
+        )
+    }));
+    if (shown.length < matching.length) {
+      items.push({
+        label: `More snippets (${matching.length - shown.length})…`,
+        icon: 'play',
+        onSelect: () => {
+          contextMenu = { side: 'remote', x, y, items: snippetMenuItems(snippets, target, path, x, y, true) };
+        }
+      });
+    }
+    if (items.length > 0) items[0] = { ...items[0], section: 'Snippets' };
+    return items;
+  }
+
+  function remoteEntryMenuItems(
+    currentView: NonNullable<typeof view>,
+    entry: FileEntryDto,
+    event: MouseEvent,
+    snippets: SnippetDto[]
+  ): ContextMenuItem[] {
     const count = remoteMarked.length;
     const files = remoteMarkedFiles.length;
     return [
@@ -612,56 +643,23 @@
         onSelect: () => void openFileAutomationPicker('remote', entry, session.hostName, event.clientX, event.clientY),
         disabled: entry.isDir
       },
-      {
-        label: 'Run snippet with this file…',
-        icon: 'play',
-        onSelect: () => void openFileSnippetPicker(entry, event.clientX, event.clientY),
-        disabled: entry.isDir
-      },
       { label: 'New folder', icon: 'plus', onSelect: () => openPrompt('mkdir') },
-      { label: 'Refresh', icon: 'refresh', onSelect: () => refreshRemote(currentView.remote.path) }
+      { label: 'Refresh', icon: 'refresh', onSelect: () => refreshRemote(currentView.remote.path) },
+      // A snippet takes one path, so a batch right-click leaves them out rather than
+      // quietly running against just the entry under the cursor.
+      ...(count > 1 ? [] : snippetMenuItems(snippets, 'entry', entry.path, event.clientX, event.clientY))
     ];
   }
 
-  /** Offers the snippets that don't take a file (`docker system prune`, `git pull`) for
-   *  the folder being browsed, and runs the chosen one in the drawer terminal there —
-   *  the same way as a file snippet, just with a `cd` into the folder first. */
-  async function openFolderSnippetPicker(folder: string, x: number, y: number): Promise<void> {
-    let snippets: SnippetDto[];
-    try {
-      snippets = (await listSnippets()).filter((s) => !usesFilePlaceholder(s.command));
-    } catch (err) {
-      lastError.set(errMsg(err));
-      return;
-    }
-    contextMenu = {
-      side: 'remote',
-      x,
-      y,
-      items:
-        snippets.length === 0
-          ? [{ label: 'No snippets without {{file}} saved yet', onSelect: () => {}, disabled: true }]
-          : snippets.map((snippet) => ({
-              label: snippet.name,
-              icon: 'play' as const,
-              onSelect: () => {
-                const command = commandInFolder(snippet.command, folder);
-                showTerminal = true;
-                void tick().then(() => terminalDrawer?.runCommand(command));
-              }
-            }))
-    };
-  }
-
-  function remoteEmptyMenuItems(currentView: NonNullable<typeof view>, event: MouseEvent): ContextMenuItem[] {
+  function remoteEmptyMenuItems(
+    currentView: NonNullable<typeof view>,
+    event: MouseEvent,
+    snippets: SnippetDto[]
+  ): ContextMenuItem[] {
     return [
-      {
-        label: 'Run snippet here…',
-        icon: 'play',
-        onSelect: () => void openFolderSnippetPicker(currentView.remote.path, event.clientX, event.clientY)
-      },
       { label: 'New folder', icon: 'plus', onSelect: () => openPrompt('mkdir') },
-      { label: 'Refresh', icon: 'refresh', onSelect: () => refreshRemote(currentView.remote.path) }
+      { label: 'Refresh', icon: 'refresh', onSelect: () => refreshRemote(currentView.remote.path) },
+      ...snippetMenuItems(snippets, 'folder', currentView.remote.path, event.clientX, event.clientY)
     ];
   }
 
@@ -687,10 +685,19 @@
     return [{ label: 'Refresh', icon: 'refresh', onSelect: () => void refreshLocal(currentView.local.path) }];
   }
 
-  function openEntryContextMenu(side: PaneSide, entry: FileEntryDto, event: MouseEvent): void {
-    if (!view) return;
-    const items = side === 'remote' ? remoteEntryMenuItems(view, entry, event) : localEntryMenuItems(view, entry, event);
-    contextMenu = { side, x: event.clientX, y: event.clientY, items };
+  // Counts menu opens, so a remote menu still waiting on its snippets doesn't pop up
+  // over one opened (or dismissed by a later right-click) in the meantime.
+  let menuRequest = 0;
+
+  async function openEntryContextMenu(side: PaneSide, entry: FileEntryDto, event: MouseEvent): Promise<void> {
+    const request = ++menuRequest;
+    if (side === 'local') {
+      if (view) contextMenu = { side, x: event.clientX, y: event.clientY, items: localEntryMenuItems(view, entry, event) };
+      return;
+    }
+    const snippets = await loadSnippets();
+    if (request !== menuRequest || !view) return;
+    contextMenu = { side, x: event.clientX, y: event.clientY, items: remoteEntryMenuItems(view, entry, event, snippets) };
   }
 
   // Right-click on a pane's current path: copy it, jump to a path from the clipboard, and
@@ -715,6 +722,7 @@
   }
 
   function openPathContextMenu(side: PaneSide, event: MouseEvent): void {
+    menuRequest++;
     if (!view) return;
     contextMenu = { side, x: event.clientX, y: event.clientY, items: pathMenuItems(side, view) };
   }
@@ -760,10 +768,15 @@
     }
   }
 
-  function openEmptyContextMenu(side: PaneSide, event: MouseEvent): void {
-    if (!view) return;
-    const items = side === 'remote' ? remoteEmptyMenuItems(view, event) : localEmptyMenuItems(view);
-    contextMenu = { side, x: event.clientX, y: event.clientY, items };
+  async function openEmptyContextMenu(side: PaneSide, event: MouseEvent): Promise<void> {
+    const request = ++menuRequest;
+    if (side === 'local') {
+      if (view) contextMenu = { side, x: event.clientX, y: event.clientY, items: localEmptyMenuItems(view) };
+      return;
+    }
+    const snippets = await loadSnippets();
+    if (request !== menuRequest || !view) return;
+    contextMenu = { side, x: event.clientX, y: event.clientY, items: remoteEmptyMenuItems(view, event, snippets) };
   }
 
   function submitPrompt(): void {
