@@ -36,6 +36,9 @@ async function boot(
       let terminalWriteBuffer = '';
       const terminalCommands: string[] = [];
       win.__terminalCommands = terminalCommands;
+      // Everything typed into the drawer terminal, as sent.
+      const terminalWritten = { text: '' };
+      win.__terminalWritten = terminalWritten;
       // A pending transfer holds until the test fires its op-done, so the progress bar
       // is observable mid-flight.
       const completions: Array<() => void> = [];
@@ -203,7 +206,9 @@ async function boot(
             case 'list_snippets':
               return Promise.resolve([
                 { id: 's1', name: 'extract', command: 'tar -xf {{file}}', timeoutSecs: 300 },
-                { id: 's2', name: 'disk free', command: 'df -h', timeoutSecs: 300 }
+                { id: 's2', name: 'disk free', command: 'df -h', timeoutSecs: 300 },
+                // Saved from the editor on Windows: `\r\n` line ends.
+                { id: 's3', name: 'report', command: 'echo "hello"\r\nfor f in *.log; do\r\n  wc -l "$f"\r\ndone\r\n', timeoutSecs: 300 }
               ]);
             case 'terminal_open': {
               const sid = ++nextTerminal;
@@ -211,6 +216,7 @@ async function boot(
             }
             case 'terminal_write': {
               const [, data] = args as [number, number[]];
+              terminalWritten.text += String.fromCharCode(...data);
               terminalWriteBuffer += String.fromCharCode(...data);
               const lines = terminalWriteBuffer.split('\n');
               terminalWriteBuffer = lines.pop() ?? '';
@@ -656,6 +662,28 @@ test('"Run snippet here" on empty space offers the snippets without a file and r
   await expect
     .poll(() => page.evaluate(() => (window as unknown as { __terminalCommands: string[] }).__terminalCommands))
     .toContain("cd '/' && df -h");
+});
+
+test('a multi-line snippet saved with Windows line ends is typed into the drawer with Linux ones', async ({ page }) => {
+  await boot(page);
+  await page.getByTitle('files on web-1').click();
+  const remotePane = page.getByRole('region', { name: 'web-1', exact: true });
+  await expect(remotePane.getByText('config.yml')).toBeVisible();
+
+  const region = page.getByRole('region', { name: 'web-1 file list' });
+  const box = await region.boundingBox();
+  await region.click({ button: 'right', position: { x: 10, y: (box?.height ?? 200) - 10 } });
+  await page.getByRole('menu').getByRole('menuitem', { name: 'Run snippet here…' }).click();
+  await page.getByRole('menu').getByRole('menuitem', { name: 'report' }).click();
+
+  // One line each, as typed — no `\r` (each would be one more Enter), no empty lines.
+  await expect
+    .poll(() => page.evaluate(() => (window as unknown as { __terminalCommands: string[] }).__terminalCommands))
+    .toEqual(expect.arrayContaining(["cd '/' && echo \"hello\"", 'for f in *.log; do', '  wc -l "$f"', 'done']));
+  const written = await page.evaluate(() => (window as unknown as { __terminalWritten: { text: string } }).__terminalWritten.text);
+  expect(written).not.toContain('\r');
+  expect(written).toContain('echo "hello"\nfor f in *.log; do\n  wc -l "$f"\ndone\n');
+  expect(written).not.toContain('done\n\n');
 });
 
 test('each entry gets its file-type icon, and an unknown type falls back', async ({ page }) => {

@@ -183,8 +183,7 @@ export class SshSession {
     timeoutMs: number = EXEC_TIMEOUT_MS,
     signal?: AbortSignal
   ): Promise<ExecResult> {
-    // The host's shell would read a Windows line end's `\r` as part of each line.
-    const { channel, exitCode } = await this.execChannel(normalizeShellCommand(cmd));
+    const { channel, exitCode } = await this.execChannel(cmd);
 
     return new Promise((resolve) => {
       const chunks: Buffer[] = [];
@@ -329,12 +328,15 @@ export class SshSession {
   /** Starts `cmd` on an exec channel, listening for its exit status from the moment
    *  the channel exists: ssh2 can read the exit status in the same socket read as the
    *  exec reply and emit it before an `await` on the channel resumes, so a listener
-   *  added after that misses it — and a failed command looked like a success. */
+   *  added after that misses it — and a failed command looked like a success.
+   *  Every command run on the host comes through here — `runShell`, `runCommand`,
+   *  `runCommandChecked` — so it gets Linux line ends here, once (normalizeShellCommand):
+   *  the host's shell would read a Windows line end's `\r` as part of each line. */
   private execChannel(cmd: string): Promise<{ channel: ClientChannel; exitCode: () => number | undefined }> {
     return this.openChannel(
       (client) =>
         new Promise((resolve, reject) => {
-          client.exec(cmd, (err, channel) => {
+          client.exec(normalizeShellCommand(cmd), (err, channel) => {
             if (err) {
               reject(err);
               return;

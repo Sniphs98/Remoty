@@ -25,3 +25,13 @@ export function chunkBytes(data: Uint8Array, size: number = INPUT_CHUNK): Uint8A
 function ownBuffer(data: Uint8Array): Uint8Array {
   return data.byteOffset === 0 && data.byteLength === data.buffer.byteLength ? data : data.slice();
 }
+
+/** `command` as a line typed into a shell, Enter included: Linux line breaks only, and
+ *  exactly one at the end. A snippet or startup command saved on Windows (or imported
+ *  from there) can carry `\r\n` line ends — typed into a remote shell, each `\r` is one
+ *  more Enter, so every line ran with an empty one after it, and a heredoc or a quoted
+ *  string got blank lines it never had. Same rule as the backend's normalizeShellCommand
+ *  for commands it runs itself. */
+export function typedCommandLine(command: string): string {
+  return `${command.replace(/\r\n?/g, '\n').replace(/\n+$/, '')}\n`;
+}
