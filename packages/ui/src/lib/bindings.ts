@@ -361,6 +361,9 @@ export type SnippetDto = {
   name: string;
   command: string;
   timeoutSecs: number;
+  /** `'file'`: run on a file/folder right-clicked in the SFTP browser; `'general'`: takes
+   *  no path. Unset on snippets saved before the field existed — see `snippetType`. */
+  type?: 'general' | 'file';
 };
 /** Every node in a completed automation run has settled (success, failed, or skipped). */
 export type AutomationCompleted = { automationName: string; results: NodeResultDto[] };

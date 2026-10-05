@@ -12,9 +12,11 @@
   import { Button, Icon } from '$lib/theme';
   import CodeEditor from '$lib/components/CodeEditor.svelte';
   import Modal from '$lib/components/Modal.svelte';
+  import Select from '$lib/components/Select.svelte';
   import { formToSnippet, type SnippetFormFields } from './snippetForm';
   import { PLACEHOLDERS, plainInsert } from './snippetCompletions';
   import { addPlaceholderSupport } from './placeholderEditor';
+  import { FILE_PLACEHOLDER } from './snippetPlaceholders';
 
   let {
     mode,
@@ -77,8 +79,10 @@
     };
   }
 
-  /** A placeholder from the side list, at the cursor. */
+  /** A placeholder from the side list, at the cursor. `{{file}}` only means something in
+   *  a File snippet, so inserting it switches the type over too. */
   function insertPlaceholder(text: string): void {
+    if (text === FILE_PLACEHOLDER) fields.type = 'file';
     if (!codeEditor) {
       fields.command += text;
       return;
@@ -143,6 +147,20 @@
               <input bind:this={nameEl} bind:value={fields.name} class={field} placeholder="Build image" />
             </label>
             <label class={label}>
+              <span>Type</span>
+              <Select bind:value={fields.type} class={field}>
+                <option value="general">General — no file</option>
+                <option value="file">File / path</option>
+              </Select>
+              <span class="block text-[11px] font-normal text-faint">
+                {#if fields.type === 'file'}
+                  In the SFTP browser: right-click a file or folder. Its path fills {'{{file}}'}, or is added at the end.
+                {:else}
+                  In the SFTP browser: right-click empty space. Runs in the folder being browsed.
+                {/if}
+              </span>
+            </label>
+            <label class={label}>
               <span>Timeout (seconds)</span>
               <input bind:value={fields.timeoutSecs} inputmode="numeric" class={field} placeholder="300" />
             </label>
@@ -172,8 +190,7 @@
             {/each}
           </ul>
           <p class="border-t border-default px-4 py-3 text-[11px] text-faint">
-            Where it runs (this machine, WSL or a host) is set per node in the automation. Without {'{{file}}'}, a snippet
-            is also under Run snippet here… in the SFTP browser and runs in that folder.
+            Where it runs (this machine, WSL or a host) is set per node in the automation.
           </p>
         </section>
       </div>

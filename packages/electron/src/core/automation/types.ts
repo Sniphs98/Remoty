@@ -16,7 +16,15 @@ export interface Snippet {
    *  one automation and against a host in another without being duplicated. */
   command: string;
   timeoutSecs: number;
+  /** What the snippet is run against from the SFTP browser: `'file'` takes the
+   *  right-clicked file or folder (`{{file}}`, or the path appended), `'general'` takes
+   *  nothing and runs in the folder being browsed. Unset in files written before the
+   *  field existed — then a `{{file}}` in the command decides. (Not the long-gone `kind`
+   *  = local/remote, which old files may still carry and the loader ignores.) */
+  type?: SnippetType;
 }
+
+export type SnippetType = 'general' | 'file';
 
 /** `'text'`/`'host'` are asked for when the automation runs; `'fixed'` is a variable set
  *  in the automation itself (its `default` is its value) and never asked for. */

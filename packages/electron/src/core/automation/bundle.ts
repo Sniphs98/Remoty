@@ -76,11 +76,15 @@ export function buildLibraryBundle(automations: Automation[], snippets: Snippet[
 
 function parseSnippet(raw: unknown, ctx: string): Snippet {
   const o = obj(raw, ctx);
+  if (o.type !== undefined && o.type !== null && o.type !== 'general' && o.type !== 'file') {
+    throw new Error(`${ctx}.type: must be "general" or "file"`);
+  }
   return {
     id: str(o.id, `${ctx}.id`),
     name: str(o.name, `${ctx}.name`),
     command: str(o.command, `${ctx}.command`),
-    timeoutSecs: num(o.timeoutSecs, `${ctx}.timeoutSecs`)
+    timeoutSecs: num(o.timeoutSecs, `${ctx}.timeoutSecs`),
+    ...(o.type === 'general' || o.type === 'file' ? { type: o.type } : {})
   };
 }
 

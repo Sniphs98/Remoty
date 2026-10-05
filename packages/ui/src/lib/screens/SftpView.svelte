@@ -47,7 +47,7 @@
     sftpDefaultPath
   } from '$lib/ipc/commands';
   import { isOnePasswordReference } from './onePasswordRef';
-  import { commandInFolder, fillFilePlaceholder, snippetsForTarget, type SnippetTarget } from './snippetPlaceholders';
+  import { commandForFile, commandInFolder, snippetsForTarget, type SnippetTarget } from './snippetPlaceholders';
 
   let { session, active }: { session: Session; active: boolean } = $props();
 
@@ -563,8 +563,8 @@
   }
 
   // Snippets sit right in the remote right-click menu, under their own heading, filtered
-  // by what was clicked: an entry (file or folder) gets the snippets with `{{file}}`,
-  // filled with its path; empty space gets the ones without, run in the folder being
+  // by what was clicked and the snippet's type: an entry (file or folder) gets the File
+  // snippets, run with its path; empty space gets the General ones, run in the folder being
   // browsed (`docker system prune`, `git pull`). Either way the command is typed into
   // the drawer terminal on this host — opening it first if it's closed, so one click
   // both reveals the shell and runs the thing. Remote pane only: the drawer is a shell
@@ -608,7 +608,7 @@
       icon: 'play',
       onSelect: () =>
         runSnippetInDrawer(
-          target === 'entry' ? fillFilePlaceholder(snippet.command, path) : commandInFolder(snippet.command, path)
+          target === 'entry' ? commandForFile(snippet.command, path) : commandInFolder(snippet.command, path)
         )
     }));
     if (shown.length < matching.length) {
