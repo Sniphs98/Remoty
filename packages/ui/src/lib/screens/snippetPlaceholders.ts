@@ -23,36 +23,32 @@ export function commandInFolder(command: string, folder: string): string {
   return folder ? `cd ${shellQuote(folder)} && ${command}` : command;
 }
 
-/** Whether the command mentions `{{file}}`. */
+/** Whether this snippet actually wants a file — drives the wording of the menu entry,
+ *  so the user can tell which snippets will use what they right-clicked. */
 export function usesFilePlaceholder(command: string): boolean {
   return command.includes(FILE_PLACEHOLDER);
 }
 
-/** A snippet's type, set in the snippet editor: `'file'` takes a file or folder path,
- *  `'general'` takes none. A snippet saved before the type existed has none stored, so
- *  a `{{file}}` in its command decides — which is how they were sorted until then. */
-export type SnippetType = 'general' | 'file';
-
-export function snippetType(snippet: { command: string; type?: SnippetType }): SnippetType {
-  return snippet.type ?? (usesFilePlaceholder(snippet.command) ? 'file' : 'general');
-}
-
-/** The command a File snippet runs for `path`: `{{file}}` filled in, or — for a command
- *  that leaves it out (`tail -f`, `less`) — the path appended as its last argument. */
-export function commandForFile(command: string, path: string): string {
-  return usesFilePlaceholder(command) ? fillFilePlaceholder(command, path) : `${command} ${shellQuote(path)}`;
+/** Every `{{…}}` placeholder in the command, as written (`{{file}}`, `{{params.host}}`). */
+function placeholdersIn(command: string): string[] {
+  return command.match(/\{\{[^{}\n]*\}\}/g) ?? [];
 }
 
 /** What a right-click in the SFTP browser landed on: an entry (file or folder), whose
- *  path the snippet takes, or empty space, where only the folder being browsed is on
- *  offer. An entry gets the File snippets, empty space the General ones, so the menu
- *  never offers a snippet that can't use the click. */
+ *  path can fill `{{file}}`, or empty space, where only the folder being browsed is on
+ *  offer. The placeholders in a snippet's command decide where it fits, since the click
+ *  is all the browser can fill in:
+ *  - an entry gets the snippets whose only placeholder is `{{file}}` (`cat {{file}}`)
+ *  - empty space gets the ones with no placeholder at all (`df -h`)
+ *  A snippet that also wants something else (`{{params.…}}`, `{{nodes.…}}`) fits
+ *  neither — nothing here could fill it in — and stays an automation building block. */
 export type SnippetTarget = 'entry' | 'folder';
 
-export function snippetsForTarget<T extends { command: string; type?: SnippetType }>(
-  snippets: T[],
-  target: SnippetTarget
-): T[] {
-  const wanted: SnippetType = target === 'entry' ? 'file' : 'general';
-  return snippets.filter((s) => snippetType(s) === wanted);
+export function snippetsForTarget<T extends { command: string }>(snippets: T[], target: SnippetTarget): T[] {
+  return snippets.filter((s) => {
+    const placeholders = placeholdersIn(s.command);
+    return target === 'entry'
+      ? placeholders.length > 0 && placeholders.every((p) => p === FILE_PLACEHOLDER)
+      : placeholders.length === 0;
+  });
 }

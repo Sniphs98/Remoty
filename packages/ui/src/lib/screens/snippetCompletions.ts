@@ -15,7 +15,7 @@ export const PLACEHOLDERS: PlaceholderHelp[] = [
   {
     label: '{{file}}',
     insert: '{{file}}',
-    detail: 'The file right-clicked in the SFTP browser (quoted for you). Type: File / path.'
+    detail: 'The file or folder right-clicked in the SFTP browser (quoted for you). Use it alone: with other placeholders the snippet is not offered there.'
   },
   {
     label: '{{params.name}}',

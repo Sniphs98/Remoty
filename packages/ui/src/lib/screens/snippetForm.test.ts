@@ -27,8 +27,7 @@ describe('formToSnippet', () => {
       id: 'id1',
       name: 'Build',
       command: 'echo hi',
-      timeoutSecs: 300,
-      type: 'general'
+      timeoutSecs: 300
     });
   });
 
@@ -38,8 +37,7 @@ describe('formToSnippet', () => {
       id: 'id2',
       name: 'Deploy',
       command: 'docker ps',
-      timeoutSecs: 300,
-      type: 'general'
+      timeoutSecs: 300
     });
   });
 
@@ -61,33 +59,16 @@ describe('formToSnippet', () => {
 
 describe('formFromSnippet', () => {
   it('round-trips a snippet', () => {
-    const original: SnippetDto = { id: 'id1', name: 'Build', command: 'npm run build', timeoutSecs: 60, type: 'general' };
+    const original: SnippetDto = { id: 'id1', name: 'Build', command: 'npm run build', timeoutSecs: 60 };
     const f = formFromSnippet(original);
     const r = formToSnippet(f, original.id);
     expect(r.ok && r.snippet).toEqual(original);
   });
 
   it('round-trips a snippet with a multi-word name', () => {
-    const original: SnippetDto = { id: 'id1', name: 'Deploy to prod', command: 'docker ps', timeoutSecs: 60, type: 'general' };
+    const original: SnippetDto = { id: 'id1', name: 'Deploy to prod', command: 'docker ps', timeoutSecs: 60 };
     const f = formFromSnippet(original);
     const r = formToSnippet(f, original.id);
     expect(r.ok && r.snippet).toEqual(original);
-  });
-});
-
-describe('snippet type', () => {
-  it('saves a File snippet', () => {
-    const r = formToSnippet(fields({ name: 'Tail', command: 'tail -f', type: 'file' }), 'id1');
-    expect(r.ok && r.snippet.type).toBe('file');
-  });
-
-  it('rejects {{file}} in a General snippet', () => {
-    const r = formToSnippet(fields({ name: 'Unzip', command: 'unzip {{file}}', type: 'general' }), 'id1');
-    expect(r).toEqual({ ok: false, error: 'The command uses {{file}} — set the type to File / path' });
-  });
-
-  it('seeds the type of a snippet saved before types from its command', () => {
-    expect(formFromSnippet({ id: 'a', name: 'x', command: 'unzip {{file}}', timeoutSecs: 1 }).type).toBe('file');
-    expect(formFromSnippet({ id: 'a', name: 'x', command: 'git pull', timeoutSecs: 1 }).type).toBe('general');
   });
 });

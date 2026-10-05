@@ -6,17 +6,15 @@
 // and a remote node's host comes from the automation's host parameter at run time.
 
 import type { SnippetDto } from '$lib/bindings';
-import { snippetType, usesFilePlaceholder, type SnippetType } from './snippetPlaceholders';
 
 export interface SnippetFormFields {
   name: string;
   command: string;
   timeoutSecs: string;
-  type: SnippetType;
 }
 
 export function emptyForm(): SnippetFormFields {
-  return { name: '', command: '', timeoutSecs: '300', type: 'general' };
+  return { name: '', command: '', timeoutSecs: '300' };
 }
 
 /** Seed the edit form from an `SnippetDto`. */
@@ -24,8 +22,7 @@ export function formFromSnippet(a: SnippetDto): SnippetFormFields {
   return {
     name: a.name,
     command: a.command,
-    timeoutSecs: String(a.timeoutSecs),
-    type: snippetType(a)
+    timeoutSecs: String(a.timeoutSecs)
   };
 }
 
@@ -40,10 +37,6 @@ export function formToSnippet(f: SnippetFormFields, id: string): SnippetFormResu
 
   const command = f.command.trim();
   if (!command) return { ok: false, error: 'Command cannot be empty' };
-  // A General snippet is run with no path, so a `{{file}}` would go in literally.
-  if (f.type === 'general' && usesFilePlaceholder(command)) {
-    return { ok: false, error: 'The command uses {{file}} — set the type to File / path' };
-  }
 
   const timeoutRaw = f.timeoutSecs.trim();
   let timeoutSecs = 300;
@@ -56,6 +49,6 @@ export function formToSnippet(f: SnippetFormFields, id: string): SnippetFormResu
 
   return {
     ok: true,
-    snippet: { id, name, command, timeoutSecs, type: f.type }
+    snippet: { id, name, command, timeoutSecs }
   };
 }

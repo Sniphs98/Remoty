@@ -137,7 +137,6 @@ export interface SnippetDto {
   name: string;
   command: string;
   timeoutSecs: number;
-  type?: 'general' | 'file';
 }
 
 export function snippetToDto(snippet: Snippet): SnippetDto {

@@ -52,24 +52,9 @@ describe('loadSnippets', () => {
     const loaded = await loadSnippets(path);
     expect(loaded[0]).toEqual({ id: 'a', name: 'x', command: 'x', timeoutSecs: 1 });
   });
-  it('loads a snippet type', async () => {
-    await writeFile(path, '[[snippets]]\nid = "a"\nname = "x"\ntype = "file"\ncommand = "x"\ntimeoutSecs = 1\n', 'utf-8');
-    expect((await loadSnippets(path))[0].type).toBe('file');
-  });
-
-  it('rejects an unknown snippet type', async () => {
-    await writeFile(path, '[[snippets]]\nid = "a"\nname = "x"\ntype = "dir"\ncommand = "x"\ntimeoutSecs = 1\n', 'utf-8');
-    await expect(loadSnippets(path)).rejects.toThrow(/"type" must be/);
-  });
 });
 
 describe('saveSnippets / loadSnippets round trip', () => {
-  it('round-trips a snippet type', async () => {
-    const original = [snippet({ type: 'file' })];
-    await saveSnippets(original, path);
-    expect(await loadSnippets(path)).toEqual(original);
-  });
-
   it('round-trips a local snippet', async () => {
     const original = [snippet()];
     await saveSnippets(original, path);

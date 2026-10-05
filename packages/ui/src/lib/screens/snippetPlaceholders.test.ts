@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  commandForFile,
   commandInFolder,
   fillFilePlaceholder,
   snippetsForTarget,
@@ -63,22 +62,13 @@ describe('snippetsForTarget', () => {
     expect(snippetsForTarget(snippets, 'folder').map((s) => s.name)).toEqual(['prune', 'pull']);
   });
 
-  it('goes by the snippet type when one is set', () => {
-    const typed = [
-      { name: 'less', command: 'less', type: 'file' as const },
-      { name: 'uptime', command: 'uptime', type: 'general' as const }
+  it('leaves out snippets with any other placeholder, which the browser cannot fill', () => {
+    const withParams = [
+      { name: 'copy', command: 'scp {{file}} {{params.target}}' },
+      { name: 'deploy', command: 'deploy {{params.env}}' },
+      { name: 'after', command: 'echo {{nodes.build.output}}' }
     ];
-    expect(snippetsForTarget(typed, 'entry').map((s) => s.name)).toEqual(['less']);
-    expect(snippetsForTarget(typed, 'folder').map((s) => s.name)).toEqual(['uptime']);
-  });
-});
-
-describe('commandForFile', () => {
-  it('fills {{file}}', () => {
-    expect(commandForFile('unzip {{file}} -d out', '/srv/a.zip')).toBe("unzip '/srv/a.zip' -d out");
-  });
-
-  it('appends the path to a command without {{file}}', () => {
-    expect(commandForFile('tail -f', '/var/log/my app.log')).toBe("tail -f '/var/log/my app.log'");
+    expect(snippetsForTarget(withParams, 'entry')).toEqual([]);
+    expect(snippetsForTarget(withParams, 'folder')).toEqual([]);
   });
 });

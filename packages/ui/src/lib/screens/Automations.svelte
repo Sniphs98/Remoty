@@ -23,7 +23,6 @@
   import { lastError } from '$lib/stores/notifications';
   import { activeEntity } from '$lib/stores/activeEntity';
   import { emptyForm, formFromSnippet } from './snippetForm';
-  import { snippetType } from './snippetPlaceholders';
   import SnippetEditor from './SnippetEditor.svelte';
   import AutomationRunDialog from './AutomationRunDialog.svelte';
   import Modal from '$lib/components/Modal.svelte';
@@ -212,7 +211,6 @@
               <div class="min-w-0">
                 <div class="flex flex-wrap items-center gap-2">
                   <span class="truncate font-medium" title={snippet.name}>{snippet.name}</span>
-                  {#if snippetType(snippet) === 'file'}<Chip variant="outline">File / path</Chip>{/if}
                 </div>
                 <div class="mt-1 truncate font-mono text-xs text-muted" title={snippet.command}>
                   {snippet.command}

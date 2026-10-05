@@ -18,15 +18,11 @@ function snippetFromToml(raw: Record<string, unknown>): Snippet {
   if (typeof raw.name !== 'string') throw new Error(`snippet "${raw.id}" is missing "name"`);
   if (typeof raw.command !== 'string') throw new Error(`snippet "${raw.name}" is missing "command"`);
   if (typeof raw.timeoutSecs !== 'number') throw new Error(`snippet "${raw.name}" is missing "timeoutSecs"`);
-  if (raw.type !== undefined && raw.type !== 'general' && raw.type !== 'file') {
-    throw new Error(`snippet "${raw.name}": "type" must be "general" or "file"`);
-  }
   return {
     id: raw.id,
     name: raw.name,
     command: raw.command,
-    timeoutSecs: raw.timeoutSecs,
-    ...(raw.type ? { type: raw.type } : {})
+    timeoutSecs: raw.timeoutSecs
   };
 }
 
@@ -35,8 +31,7 @@ function snippetToToml(snippet: Snippet): Record<string, unknown> {
     id: snippet.id,
     name: snippet.name,
     command: snippet.command,
-    timeoutSecs: snippet.timeoutSecs,
-    ...(snippet.type ? { type: snippet.type } : {})
+    timeoutSecs: snippet.timeoutSecs
   };
 }
 
