@@ -13,7 +13,8 @@
   import CodeEditor from '$lib/components/CodeEditor.svelte';
   import Modal from '$lib/components/Modal.svelte';
   import { formToSnippet, type SnippetFormFields } from './snippetForm';
-  import { PLACEHOLDERS, placeholderPrefix, placeholderRanges, plainInsert } from './snippetCompletions';
+  import { PLACEHOLDERS, plainInsert } from './snippetCompletions';
+  import { addPlaceholderSupport } from './placeholderEditor';
 
   let {
     mode,
@@ -68,54 +69,10 @@
   /** The command editor's extras: `{{` suggestions, highlighted placeholders, Ctrl+S. */
   function setUpEditor(monaco: typeof Monaco, editor: Monaco.editor.IStandaloneCodeEditor): () => void {
     codeEditor = editor;
-    const suggestions = monaco.languages.registerCompletionItemProvider('shell', {
-      triggerCharacters: ['{'],
-      provideCompletionItems(model, position) {
-        // Only in this editor (the provider is per language, FileEditor's shell files too).
-        if (model !== editor.getModel()) return { suggestions: [] };
-        const before = model.getValueInRange({
-          startLineNumber: position.lineNumber,
-          startColumn: 1,
-          endLineNumber: position.lineNumber,
-          endColumn: position.column
-        });
-        const typed = placeholderPrefix(before);
-        if (typed === null) return { suggestions: [] };
-        // Replace what's typed of the placeholder, and a `}}` the editor closed for us.
-        const after = model.getLineContent(position.lineNumber).slice(position.column - 1);
-        const closing = after.startsWith('}}') ? 2 : 0;
-        const range = new monaco.Range(position.lineNumber, position.column - typed, position.lineNumber, position.column + closing);
-        return {
-          suggestions: PLACEHOLDERS.map((p, i) => ({
-            label: p.label,
-            kind: monaco.languages.CompletionItemKind.Variable,
-            detail: p.detail,
-            insertText: p.insert,
-            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
-            filterText: p.label,
-            sortText: String(i),
-            range
-          }))
-        };
-      }
-    });
-
-    const decorations = editor.createDecorationsCollection();
-    const highlight = (): void => {
-      decorations.set(
-        placeholderRanges(editor.getValue()).map((r) => ({
-          range: new monaco.Range(r.line, r.start, r.line, r.end),
-          options: { inlineClassName: 'snippet-placeholder' }
-        }))
-      );
-    };
-    highlight();
-    const changes = editor.onDidChangeModelContent(highlight);
-
+    const placeholders = addPlaceholderSupport(monaco, editor);
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => void save());
     return () => {
-      suggestions.dispose();
-      changes.dispose();
+      placeholders();
       codeEditor = undefined;
     };
   }

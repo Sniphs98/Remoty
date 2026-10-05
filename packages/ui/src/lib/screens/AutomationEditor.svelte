@@ -40,6 +40,7 @@
   import { copyNodes, pasteNodes, readClipboard } from './automationClipboard';
   import { autoLayout } from './automationLayout';
   import SnippetEditor from './SnippetEditor.svelte';
+  import AutomationIfCommandDialog from './AutomationIfCommandDialog.svelte';
   import { emptyForm, formFromSnippet } from './snippetForm';
   import {
     AUTOMATION_NODE_ACTIONS_CONTEXT,
@@ -199,6 +200,23 @@
   let editingSnippetId = $state<string | null>(null);
   const editingSnippet = $derived($snippets.find((a) => a.id === editingSnippetId) ?? null);
 
+  // An If node's command in a dialog (AutomationIfCommandDialog) — the node opens it via
+  // AUTOMATION_NODE_ACTIONS_CONTEXT; Apply writes the command back onto the node.
+  let editingIfNodeId = $state<string | null>(null);
+  const editingIfNode = $derived.by(() => {
+    const n = canvasNodes.find((c) => c.id === editingIfNodeId);
+    return n?.type === 'if' && n.data.condition.kind === 'command' ? n : null;
+  });
+
+  function applyIfCommand(command: string): void {
+    canvasNodes = canvasNodes.map((n) =>
+      n.id === editingIfNodeId && n.type === 'if' && n.data.condition.kind === 'command'
+        ? { ...n, data: { ...n.data, condition: { ...n.data.condition, command } } }
+        : n
+    );
+    editingIfNodeId = null;
+  }
+
   // Asked once per editor: which WSL distributions a node could run in.
   let distros = $state<string[]>([]);
   onMount(() => {
@@ -211,6 +229,9 @@
   setContext<AutomationNodeActionsContext>(AUTOMATION_NODE_ACTIONS_CONTEXT, {
     editSnippet: (snippetId: string) => {
       editingSnippetId = snippetId;
+    },
+    editIfCommand: (nodeId: string) => {
+      editingIfNodeId = nodeId;
     },
     wslDistros: () => distros,
     automationName: () => name,
@@ -824,6 +845,15 @@
     initial={formFromSnippet(editingSnippet)}
     onSubmit={submitSnippetEdit}
     onCancel={() => (editingSnippetId = null)}
+  />
+{/if}
+
+{#if editingIfNode && editingIfNode.data.condition.kind === 'command'}
+  <AutomationIfCommandDialog
+    label={editingIfNode.data.label}
+    initial={editingIfNode.data.condition.command}
+    onApply={applyIfCommand}
+    onCancel={() => (editingIfNodeId = null)}
   />
 {/if}
 

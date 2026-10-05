@@ -796,6 +796,44 @@ test('an if node: added from the "+" menu, its "no" way wired by dragging, saved
   await expect(page.getByRole('dialog', { name: 'Automation run' })).toBeVisible();
 });
 
+test("an if node's command: a longer, multi-line one is written in a dialog", async ({ page }) => {
+  await boot(page);
+  await page.getByRole('button', { name: 'Automations', exact: true }).click();
+  await page.getByRole('button', { name: 'New automation' }).first().click();
+  await page.getByLabel('Automation name').fill('check-image');
+  await page.getByRole('button', { name: 'Add a snippet to this automation' }).click();
+  await page.getByRole('dialog', { name: 'Pick a snippet' }).getByRole('button', { name: /If…/ }).click();
+  const ifNode = page.locator('.svelte-flow__node', { hasText: 'If — then one way or the other' });
+  await ifNode.getByRole('button', { name: 'command', exact: true }).click();
+  await ifNode.getByRole('textbox', { name: 'Command' }).fill('test -f a');
+
+  // The dialog opens with what's typed, and Apply puts the longer command on the node.
+  await ifNode.getByRole('button', { name: 'Edit command in a larger editor' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Edit If command' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('textbox', { name: 'Command' })).toBeFocused();
+  await fillCommand(dialog, 'test -f image.tar.gz &&\ntest -d {{params.dir}}');
+  await dialog.getByRole('button', { name: 'Apply' }).click();
+  await expect(dialog).toHaveCount(0);
+
+  // Multi-line: the node shows it, and clicking it opens the dialog again.
+  const preview = ifNode.getByRole('button', { name: 'Command (opens editor)' });
+  await expect(preview).toContainText('test -d {{params.dir}}');
+  await preview.click();
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+
+  await page.getByRole('button', { name: 'Create automation' }).click();
+  await expect(page.getByRole('heading', { name: 'Automations' })).toBeVisible();
+  const saved = await page.evaluate(
+    () => (window as unknown as { __automationState: { automations: Array<{ nodes: Array<Record<string, unknown>> }> } }).__automationState.automations[0]
+  );
+  const condition = saved.nodes[0].condition as { kind: string; command: string };
+  expect(condition.kind).toBe('command');
+  // (Monaco may leave trailing spaces where typed lines were auto-indented.)
+  expect(condition.command.split('\n').map((line) => line.trimEnd())).toEqual(['test -f image.tar.gz &&', 'test -d {{params.dir}}']);
+});
+
 test('export and import — sharing a snippet or automation as a file', async ({ page }) => {
   await boot(page);
 

@@ -102,6 +102,8 @@ export const AUTOMATION_PARAMS_CONTEXT = 'automation-params';
  *  itself. */
 export interface AutomationNodeActionsContext {
   editSnippet: (snippetId: string) => void;
+  /** Opens If node `nodeId`'s command in a dialog, with room for a longer one. */
+  editIfCommand: (nodeId: string) => void;
   /** The WSL distributions a node can run in — [] where there is no WSL, in which case
    *  a node offers no WSL option (unless it already runs in WSL). */
   wslDistros: () => string[];
