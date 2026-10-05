@@ -181,19 +181,10 @@ export class SshSession {
     timeoutMs: number = EXEC_TIMEOUT_MS,
     signal?: AbortSignal
   ): Promise<{ output: string; ok: boolean; error?: string }> {
-    const channel = await this.openChannel(
-      (client) =>
-        new Promise<ClientChannel>((resolve, reject) => {
-          client.exec(cmd, (err, ch) => {
-            if (err) reject(err);
-            else resolve(ch);
-          });
-        })
-    );
+    const { channel, exitCode } = await this.execChannel(cmd);
 
     return new Promise((resolve) => {
       const chunks: Buffer[] = [];
-      let exitCode: number | undefined;
       let timedOut = false;
       const timer = setTimeout(() => {
         timedOut = true;
@@ -216,9 +207,6 @@ export class SshSession {
       const collect = (data: Buffer): void => void chunks.push(data);
       channel.on('data', collect);
       channel.stderr.on('data', collect);
-      channel.on('exit', (code: number | null) => {
-        if (code !== null) exitCode = code;
-      });
       channel.on('close', () => {
         clearTimeout(timer);
         stopListening();
@@ -231,8 +219,9 @@ export class SshSession {
           resolve({ output, ok: false, error: `command timed out after ${Math.round(timeoutMs / 1000)}s` });
           return;
         }
-        const ok = exitCode === undefined || exitCode === 0;
-        resolve({ output, ok, error: ok ? undefined : `remote command exited with status ${exitCode}` });
+        const code = exitCode();
+        const ok = code === undefined || code === 0;
+        resolve({ output, ok, error: ok ? undefined : `remote command exited with status ${code}` });
       });
       channel.on('error', (err: Error) => {
         clearTimeout(timer);
@@ -324,20 +313,34 @@ export class SshSession {
     lease.release();
   }
 
-  private async exec(cmd: string): Promise<{ output: string; exitCode: number | undefined }> {
-    const channel = await this.openChannel(
+  /** Starts `cmd` on an exec channel, listening for its exit status from the moment
+   *  the channel exists: ssh2 can read the exit status in the same socket read as the
+   *  exec reply and emit it before an `await` on the channel resumes, so a listener
+   *  added after that misses it — and a failed command looked like a success. */
+  private execChannel(cmd: string): Promise<{ channel: ClientChannel; exitCode: () => number | undefined }> {
+    return this.openChannel(
       (client) =>
-        new Promise<ClientChannel>((resolve, reject) => {
-          client.exec(cmd, (err, ch) => {
-            if (err) reject(err);
-            else resolve(ch);
+        new Promise((resolve, reject) => {
+          client.exec(cmd, (err, channel) => {
+            if (err) {
+              reject(err);
+              return;
+            }
+            let code: number | undefined;
+            channel.on('exit', (c: number | null) => {
+              if (c !== null) code = c;
+            });
+            resolve({ channel, exitCode: () => code });
           });
         })
     );
+  }
+
+  private async exec(cmd: string): Promise<{ output: string; exitCode: number | undefined }> {
+    const { channel, exitCode } = await this.execChannel(cmd);
 
     return new Promise((resolve, reject) => {
       const chunks: Buffer[] = [];
-      let exitCode: number | undefined;
       const timer = setTimeout(() => {
         channel.destroy();
         reject(new SshCommandError(`command timed out (30 s): ${cmd}`));
@@ -347,9 +350,6 @@ export class SshSession {
       channel.stderr.on('data', () => {
         // Discarded — stdout-only parser input, matching the Rust behaviour.
       });
-      channel.on('exit', (code: number | null) => {
-        if (code !== null) exitCode = code;
-      });
       channel.on('close', () => {
         clearTimeout(timer);
         const raw = Buffer.concat(chunks).toString('utf-8');
@@ -358,7 +358,7 @@ export class SshSession {
           .split(/\r\n|\r|\n/)
           .map((l) => `${l}\n`)
           .join('');
-        resolve({ output: normalised, exitCode });
+        resolve({ output: normalised, exitCode: exitCode() });
       });
       channel.on('error', (err: Error) => {
         clearTimeout(timer);
