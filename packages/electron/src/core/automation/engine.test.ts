@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
 import {
   AutomationCycleError,
@@ -16,6 +17,8 @@ import {
   type AutomationProgressEvent,
   type RunAutomationDeps
 } from './engine.js';
+import { runLocalCommand } from './localExec.js';
+import { wslArgs, wslCommandEnv } from './wslExec.js';
 import type { Snippet, Automation, AutomationNode, AutomationParam, ExecResult, IfCondition, NodeResult, NodeTarget } from './types.js';
 
 function snippet(partial: Partial<Snippet> & Pick<Snippet, 'id' | 'name'>): Snippet {
@@ -1250,6 +1253,90 @@ describe('if nodes: a command\'s output', () => {
   it('a report falls back to the combined output when the runner gives no streams', () => {
     const report = ifCommandReport({ command: 'check', target: 'wsl', result: { output: 'both', ok: true }, answer: 'yes' }, true);
     expect(report).toBe(['Command:', 'check', '', 'Target: WSL', 'Distribution: (default)', 'Exit code: not reported', '', 'output:', 'both', '', 'Result: yes'].join('\n'));
+  });
+});
+
+// A command from the editor on Windows has `\r\n` line ends. Run for real: locally in
+// `sh`, and "in WSL" as bash started the way wsl.exe starts it, with its environment.
+describe.skipIf(process.platform === 'win32')('if nodes: a multi-line command with Windows line ends', () => {
+  const yes = snippet({ id: 'yes', name: 'Yes', command: 'echo yes way' });
+  const library = new Map([['yes', yes]]);
+  const crlf = (...lines: string[]): string => lines.join('\r\n') + '\r\n';
+  /** Like the archive check: echoes, then a `case` decides. */
+  const check = (image: string) =>
+    crlf(
+      'EXPECTED="ghcr.io/example/{{params.image}}:v1"',
+      `MANIFEST="ghcr.io/example/${image}:v1"`,
+      'echo "EXPECTED=$EXPECTED"',
+      'case "$MANIFEST" in',
+      '  *"$EXPECTED"*)',
+      '    exit 0',
+      '    ;;',
+      '  *)',
+      '    exit 1',
+      '    ;;',
+      'esac'
+    );
+
+  function inWsl(_distro: string | undefined, command: string): Promise<ExecResult> {
+    const [bash, ...args] = wslArgs(undefined).slice(1);
+    const r = spawnSync(bash, args, { env: wslCommandEnv(command), encoding: 'utf8' });
+    return Promise.resolve({ output: r.stdout + r.stderr, stdout: r.stdout, stderr: r.stderr, ok: r.status === 0, exitCode: r.status });
+  }
+  const runners: RunAutomationDeps = {
+    runLocal: runLocalCommand,
+    runWsl: inWsl,
+    runGitHub: async () => '',
+    wslUploadSource: async (_d, p) => p,
+    connectHost: async () => {
+      throw new Error('not reached');
+    }
+  };
+
+  async function run(target: NodeTarget, command: string) {
+    const f = automation(
+      [
+        node({ id: 'if', snippetId: '', label: 'check', target, condition: { kind: 'command', command, timeoutSecs: 10, debug: true } }),
+        node({ id: 'y', snippetId: 'yes', label: 'on-yes', target })
+      ],
+      [],
+      [{ name: 'image', kind: 'text' }]
+    );
+    f.edges = [{ from: 'if', to: 'y', branch: 'yes' }];
+    const progress: string[] = [];
+    const results = await runAutomation(f, library, { image: 'frontend' }, runners, (e) => {
+      if (e.kind === 'nodeProgress') progress.push(e.message);
+    });
+    return { results, report: progress[0] };
+  }
+
+  for (const target of ['wsl', 'local'] as const) {
+    it(`${target}: exit 0 is yes, with what it printed in the report`, async () => {
+      const { results, report } = await run(target, check('frontend'));
+      expect(results.map((r) => [r.status, r.output])).toEqual([
+        ['success', 'yes'],
+        ['success', 'yes way\n']
+      ]);
+      expect(report).toContain('Exit code: 0');
+      expect(report).toContain('stdout:\nEXPECTED=ghcr.io/example/frontend:v1\n');
+      expect(report).toContain('stderr:\n(empty)');
+      expect(report).not.toContain("$'\\r'");
+    });
+
+    it(`${target}: exit 1 is no — still not a failure`, async () => {
+      const { results, report } = await run(target, check('backend'));
+      expect(results.map((r) => [r.status, r.output])).toEqual([
+        ['success', 'no'],
+        ['skipped', '']
+      ]);
+      expect(report).toContain('Exit code: 1');
+      expect(report).toContain('stderr:\n(empty)');
+    });
+  }
+
+  it('a one-line command is answered as before', async () => {
+    expect((await run('wsl', 'test -d / && exit 0 || exit 1')).results[0].output).toBe('yes');
+    expect((await run('local', 'test -d /no/such/dir')).results[0].output).toBe('no');
   });
 });
 

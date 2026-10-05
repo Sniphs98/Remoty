@@ -56,6 +56,10 @@
         fixedOverflowWidgets: true,
         tabSize: 2
       });
+      // Monaco ends lines the platform's way — `\r\n` on Windows — and bash in WSL or on a
+      // host reads that `\r` as part of each line. Line breaks typed or pasted here are
+      // `\n`; the runners normalize what's already saved (normalizeShellCommand).
+      editor.getModel()?.setEOL(monaco.editor.EndOfLineSequence.LF);
       editor.onDidChangeModelContent(() => (value = editor!.getValue()));
       themeUnsub = theme.subscribe((t) => monaco.editor.setTheme(t === 'dark' ? 'vs-dark' : 'vs'));
       cleanup = onReady?.(monaco, editor) || undefined;

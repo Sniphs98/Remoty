@@ -6,6 +6,7 @@ import { Client, type AnyAuthMethod, type ClientChannel, type ConnectConfig } fr
 
 import type { Host } from './client.js';
 import type { ExecResult } from '../automation/types.js';
+import { normalizeShellCommand } from '../automation/shellCommand.js';
 import { ConnectionPool, type Lease } from './connectionPool.js';
 import { checkKnownHosts, hostPattern, learnKnownHost } from './knownHosts.js';
 import { connectReporter, reportConnectStage, withoutConnectProgress } from './connectProgress.js';
@@ -182,7 +183,8 @@ export class SshSession {
     timeoutMs: number = EXEC_TIMEOUT_MS,
     signal?: AbortSignal
   ): Promise<ExecResult> {
-    const { channel, exitCode } = await this.execChannel(cmd);
+    // The host's shell would read a Windows line end's `\r` as part of each line.
+    const { channel, exitCode } = await this.execChannel(normalizeShellCommand(cmd));
 
     return new Promise((resolve) => {
       const chunks: Buffer[] = [];
