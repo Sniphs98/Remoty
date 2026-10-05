@@ -1,6 +1,7 @@
+import { EventEmitter } from 'node:events';
 import { describe, expect, it } from 'vitest';
 import { defaultHost, type Host } from './client.js';
-import { buildCdShellCommand, connectBudgetMs, hostKeyMessage, unreachableMessage, useHosts } from './session.js';
+import { SshSession, buildCdShellCommand, connectBudgetMs, hostKeyMessage, unreachableMessage, useHosts } from './session.js';
 
 describe('buildCdShellCommand', () => {
   it('cds into the path, then execs a login shell', () => {
@@ -56,5 +57,30 @@ describe('unreachableMessage', () => {
     expect(unreachableMessage(host, 'Timed out while waiting for handshake')).toMatch(/no answer/);
     expect(unreachableMessage(host, 'connect EHOSTUNREACH')).toMatch(/no route/);
     expect(unreachableMessage(host, 'something odd')).toBe('Could not reach web (10.0.0.5:2222): something odd');
+  });
+});
+
+describe('exit status', () => {
+  /** A session over a fake client whose exec channel reports exit `code` straight away —
+   *  in the same tick as the exec reply, as ssh2 does when both arrive in one socket
+   *  read — and closes a moment later. */
+  function sessionExiting(code: number): SshSession {
+    const client = {
+      exec(_cmd: string, cb: (err: Error | undefined, channel: EventEmitter) => void) {
+        const channel = Object.assign(new EventEmitter(), { stderr: new EventEmitter() });
+        cb(undefined, channel);
+        channel.emit('exit', code);
+        setTimeout(() => channel.emit('close'), 0);
+      }
+    };
+    // The constructor is private: sessions come from connect()/shared(), which dial.
+    const Session = SshSession as unknown as new (connection: { client: typeof client }) => SshSession;
+    return new Session({ client });
+  }
+
+  it('is seen even when it arrives with the exec reply', async () => {
+    await expect(sessionExiting(7).runCommandChecked('exit 7')).rejects.toThrow('exited with status 7');
+    await expect(sessionExiting(7).runShell('exit 7')).resolves.toMatchObject({ ok: false, error: 'remote command exited with status 7' });
+    await expect(sessionExiting(0).runShell('true')).resolves.toMatchObject({ ok: true });
   });
 });
