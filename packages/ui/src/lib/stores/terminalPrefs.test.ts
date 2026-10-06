@@ -37,7 +37,14 @@ describe('terminalRightClick', () => {
     expect(get(terminalRightClick)).toBe('paste');
   });
 
-  it('ignores a stored value that is not one of the two modes', async () => {
+  it('accepts the Windows Terminal copy/paste mode from the settings store', async () => {
+    backend.get.mockResolvedValue('copyPaste');
+    const { terminalRightClick } = await fresh();
+    await terminalRightClick.hydrate();
+    expect(get(terminalRightClick)).toBe('copyPaste');
+  });
+
+  it('ignores a stored value that is not one of the modes', async () => {
     backend.get.mockResolvedValue('middle-click');
     const { terminalRightClick } = await fresh();
     await terminalRightClick.hydrate();

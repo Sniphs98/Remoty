@@ -117,7 +117,8 @@
         <div class="min-w-0">
           <p class="text-sm">Right-click</p>
           <p class="text-xs text-muted">
-            Paste immediately, the way PuTTY does, or open a menu with Copy and Paste.
+            Open a menu with Copy and Paste, paste immediately the way PuTTY does, or copy the
+            selection and paste when nothing is selected, like Windows Terminal.
           </p>
         </div>
         <div class="flex shrink-0 gap-1 rounded-xl bg-surface-inset p-1">
@@ -136,6 +137,14 @@
             onclick={() => terminalRightClick.set('paste')}
           >
             Paste
+          </button>
+          <button
+            type="button"
+            class="{seg} {segState($terminalRightClick === 'copyPaste')}"
+            aria-pressed={$terminalRightClick === 'copyPaste'}
+            onclick={() => terminalRightClick.set('copyPaste')}
+          >
+            Copy / Paste
           </button>
         </div>
       </div>

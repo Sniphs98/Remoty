@@ -79,8 +79,9 @@
     void copySelection(term).catch(() => {});
   }
 
-  // Right-click either pastes outright (PuTTY) or opens a small menu — a setting,
-  // since which one feels right is a matter of which terminal you grew up with.
+  // Right-click pastes outright (PuTTY), copies-or-pastes (Windows Terminal) or opens a
+  // small menu — a setting, since which one feels right is a matter of which terminal
+  // you grew up with.
   let terminalMenu = $state<{ x: number; y: number; items: ContextMenuItem[] } | null>(null);
 
   function pasteIntoTerm(): void {
@@ -93,7 +94,14 @@
   function handleContextMenu(event: MouseEvent): void {
     if (term === undefined) return;
     event.preventDefault();
-    if ($terminalRightClick === 'paste') {
+    if ($terminalRightClick === 'copyPaste' && term.hasSelection()) {
+      const t = term;
+      void copySelection(t)
+        .catch(() => {})
+        .finally(() => t.clearSelection());
+      return;
+    }
+    if ($terminalRightClick === 'paste' || $terminalRightClick === 'copyPaste') {
       pasteIntoTerm();
       return;
     }
