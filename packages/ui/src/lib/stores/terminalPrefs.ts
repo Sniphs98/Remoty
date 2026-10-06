@@ -2,13 +2,14 @@ import { writable } from 'svelte/store';
 
 // Terminal mouse behaviour. Which one people expect is genuinely split — PuTTY and
 // most X11 terminals paste on right-click and copy the moment you select, while
-// Windows Terminal and the JetBrains/VS Code terminals open a menu — so both are
-// offered rather than picked for the user. Persisted like every other UI pref here:
+// the JetBrains/VS Code terminals open a menu, and Windows Terminal copies a selection
+// or pastes when there is none — so all three are offered rather than picked for the user. Persisted like every other UI pref here:
 // canonical value in the settings store, mirrored to localStorage so the first paint
 // already has it (see `stores/ui.ts` for the original of this shape).
 
-/** What a right-click inside a terminal does. */
-export type TerminalRightClick = 'menu' | 'paste';
+/** What a right-click inside a terminal does. `copyPaste` is the Windows Terminal
+ *  behaviour: copy and clear the selection if there is one, otherwise paste. */
+export type TerminalRightClick = 'menu' | 'paste' | 'copyPaste';
 
 const RIGHT_CLICK_LOCAL_KEY = 'remoty-terminal-right-click';
 const RIGHT_CLICK_STORE_KEY = 'terminalRightClick';
@@ -73,7 +74,7 @@ function createPref<T>(localKey: string, storeKey: string, parse: (raw: unknown)
 }
 
 function parseRightClick(raw: unknown): TerminalRightClick | undefined {
-  return raw === 'paste' || raw === 'menu' ? raw : undefined;
+  return raw === 'paste' || raw === 'menu' || raw === 'copyPaste' ? raw : undefined;
 }
 
 function parseBoolean(raw: unknown): boolean | undefined {
