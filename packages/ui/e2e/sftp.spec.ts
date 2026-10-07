@@ -48,7 +48,8 @@ async function boot(
         '/home/user': [
           { name: 'notes.txt', path: '/home/user/notes.txt', size: 24, isDir: false },
           { name: 'work', path: '/home/user/work', size: 0, isDir: true }
-        ]
+        ],
+        '/home/user/work': [{ name: 'plan.md', path: '/home/user/work/plan.md', size: 8, isDir: false }]
       };
       const remote: Record<string, Entry[]> = {
         '/': [
@@ -780,6 +781,61 @@ test('a second action waits until the batch before it has finished', async ({ pa
 });
 
 type PathTestWindow = { __savedHost?: { name: string; defaultPath?: string } };
+
+test.describe('local folder shortcuts', () => {
+  const localPane = (page: Page) => page.getByRole('region', { name: 'Local', exact: true });
+  const shortcuts = (page: Page) => page.getByRole('toolbar', { name: 'Local folder shortcuts' });
+
+  test('+ adds a named shortcut, and clicking its badge opens the folder in the local pane', async ({ page }) => {
+    await boot(page);
+    await page.getByTitle('files on web-1').click();
+    await expect(localPane(page).getByText('notes.txt')).toBeVisible();
+
+    await shortcuts(page).getByRole('button', { name: 'Add shortcut' }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByLabel('Name').fill('Work');
+    await dialog.getByLabel('Local folder').fill('/home/user/work');
+    await dialog.getByRole('button', { name: 'Save' }).click();
+    await expect(dialog).toHaveCount(0);
+
+    await shortcuts(page).getByRole('button', { name: 'Work' }).click();
+    await expect(localPane(page).getByText('plan.md')).toBeVisible();
+    await expect(localPane(page).getByTestId('pane-path')).toHaveText('/home/user/work');
+  });
+
+  test('a default shortcut is where the next SFTP tab opens its local pane', async ({ page }) => {
+    await boot(page);
+    await page.getByTitle('files on web-1').click();
+    await expect(localPane(page).getByText('notes.txt')).toBeVisible();
+
+    await shortcuts(page).getByRole('button', { name: 'Add shortcut' }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByLabel('Name').fill('Work');
+    await dialog.getByLabel('Local folder').fill('/home/user/work');
+    await dialog.getByRole('switch', { name: 'Open SFTP tabs here' }).click();
+    await dialog.getByRole('button', { name: 'Save' }).click();
+
+    await page.reload();
+    await expect(page.getByText('2 hosts')).toBeVisible();
+    await page.getByTitle('files on web-1').click();
+    await expect(localPane(page).getByText('plan.md')).toBeVisible();
+    await expect(localPane(page).getByText('notes.txt')).toHaveCount(0);
+  });
+
+  test('right-click on a badge removes it', async ({ page }) => {
+    await boot(page);
+    await page.getByTitle('files on web-1').click();
+    await shortcuts(page).getByRole('button', { name: 'Add shortcut' }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByLabel('Name').fill('Work');
+    await dialog.getByLabel('Local folder').fill('/home/user/work');
+    await dialog.getByRole('button', { name: 'Save' }).click();
+
+    await shortcuts(page).getByRole('button', { name: 'Work' }).click({ button: 'right' });
+    await page.getByRole('menu').getByRole('menuitem', { name: 'Remove' }).click();
+    await expect(shortcuts(page).getByRole('button', { name: 'Work' })).toHaveCount(0);
+  });
+});
 
 test.describe('the path line', () => {
   // A clipboard of each page's own: the real one is shared by every test running in

@@ -9,6 +9,7 @@
   import { followSidebarMode } from '$lib/stores/navigation';
   import { terminalCopyOnSelect, terminalGpu, terminalRightClick } from '$lib/stores/terminalPrefs';
   import { streamerMode } from '$lib/stores/streamer';
+  import { sftpBookmarks } from '$lib/stores/sftpBookmarks';
   import { refreshInterval, driveMetricsRefresh } from '$lib/stores/settings';
   import { lastError } from '$lib/stores/notifications';
 
@@ -28,6 +29,7 @@
     void terminalGpu.hydrate();
     void streamerMode.hydrate();
     void refreshInterval.hydrate();
+    void sftpBookmarks.hydrate();
     // Force a metric refresh on the user's interval; re-arms when the interval changes.
     const stopRefresh = driveMetricsRefresh(() => {
       void refreshMetrics().catch(() => {});
