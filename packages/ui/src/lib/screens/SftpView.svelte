@@ -8,6 +8,7 @@
   import { onMount, onDestroy, tick } from 'svelte';
   import { Button, Icon } from '$lib/theme';
   import Modal from '$lib/components/Modal.svelte';
+  import Switch from '$lib/components/Switch.svelte';
   import ContextMenu, { type ContextMenuItem } from '$lib/components/ContextMenu.svelte';
   import SftpPane from './SftpPane.svelte';
   import FileEditor from './FileEditor.svelte';
@@ -25,6 +26,7 @@
   import { lastError } from '$lib/stores/notifications';
   import { runAutomationNow } from '$lib/stores/automations';
   import { palette } from '$lib/stores/palette';
+  import { sftpBookmarks, defaultBookmarkPath, newBookmarkId, type SftpBookmark } from '$lib/stores/sftpBookmarks';
   import {
     sftpOpen,
     sftpList,
@@ -97,6 +99,10 @@
   // other mutations here — it asks first. Reads the live `remoteMarked` selection at
   // confirm time rather than snapshotting it, same as `remove()` already did.
   let deleteConfirm = $state(false);
+
+  // The add/edit form for a local-folder bookmark (the badges above the panes, see
+  // stores/sftpBookmarks.ts). `id` is the bookmark being edited, absent for a new one.
+  let bookmarkForm = $state<{ id?: string; name: string; path: string; isDefault: boolean } | null>(null);
 
   // The local pane can be hidden to see more of the remote side; the drawer terminal
   // (SftpTerminalDrawer, cd'd into the remote path at the moment it opens) docks below
@@ -182,6 +188,64 @@
     }
   }
 
+  // The local pane's first listing: the default bookmark's folder if there is one, else
+  // home. A default that no longer lists (deleted, unplugged drive) falls back to home
+  // and says why, rather than opening the tab on an error.
+  async function openLocal(home: string): Promise<void> {
+    await sftpBookmarks.hydrate();
+    const start = defaultBookmarkPath(get(sftpBookmarks));
+    const id = backendId;
+    if (start && id != null) {
+      sftp.beginLoading(id, 'local');
+      try {
+        sftp.listing(id, 'local', start, await listLocalDir(start));
+        return;
+      } catch (err) {
+        lastError.set(`Default folder ${start}: ${errMsg(err)}`);
+      }
+    }
+    await refreshLocal(home);
+  }
+
+  function goToBookmark(bookmark: SftpBookmark): void {
+    hideLocal = false;
+    void refreshLocal(bookmark.path);
+  }
+
+  function openBookmarkForm(bookmark?: SftpBookmark): void {
+    bookmarkForm = bookmark
+      ? { ...bookmark }
+      : { name: '', path: view?.local.path ?? '', isDefault: false };
+  }
+
+  function submitBookmarkForm(): void {
+    const form = bookmarkForm;
+    if (!form) return;
+    const name = form.name.trim();
+    const path = form.path.trim();
+    if (!name || !path) return;
+    sftpBookmarks.save({ id: form.id ?? newBookmarkId(), name, path, isDefault: form.isDefault });
+    bookmarkForm = null;
+  }
+
+  function openBookmarkContextMenu(bookmark: SftpBookmark, event: MouseEvent): void {
+    contextMenu = {
+      side: 'local',
+      x: event.clientX,
+      y: event.clientY,
+      items: [
+        { label: 'Open', icon: 'folder', onSelect: () => goToBookmark(bookmark) },
+        { label: 'Edit…', icon: 'edit', onSelect: () => openBookmarkForm(bookmark) },
+        {
+          label: bookmark.isDefault ? 'Unset as default' : 'Set as default',
+          icon: 'check',
+          onSelect: () => sftpBookmarks.save({ ...bookmark, isDefault: !bookmark.isDefault })
+        },
+        { label: 'Remove', icon: 'trash', danger: true, onSelect: () => sftpBookmarks.remove(bookmark.id) }
+      ]
+    };
+  }
+
   function refreshRemote(path: string): void {
     const id = backendId;
     if (id == null) return;
@@ -247,7 +311,7 @@
         stopExternalDrop();
         stopExternalDrop = undefined;
       }
-      void refreshLocal(home);
+      void openLocal(home);
       // The host's configured default path, if any (tech-gui.md §4.1) — otherwise the
       // server root, as before.
       const host = get(hosts).find((h) => h.name === session.hostName);
@@ -788,6 +852,43 @@
       <p class="text-sm text-muted">Connecting to {session.hostName}…</p>
     </div>
   {:else}
+    <!-- Local-folder shortcuts: click to open in the local pane, right-click to edit,
+         make default or remove. -->
+    <div
+      class="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-default px-3 py-1.5"
+      role="toolbar"
+      aria-label="Local folder shortcuts"
+    >
+      {#each $sftpBookmarks as bookmark (bookmark.id)}
+        <button
+          type="button"
+          class="{toolBtn} max-w-[14rem] {view.local.path === bookmark.path ? 'border-accent text-fg' : ''}"
+          title={bookmark.isDefault ? `${bookmark.path} (opens by default)` : bookmark.path}
+          onclick={() => goToBookmark(bookmark)}
+          oncontextmenu={(event) => {
+            event.preventDefault();
+            openBookmarkContextMenu(bookmark, event);
+          }}
+        >
+          <Icon name="folder" size={13} />
+          <span class="truncate">{bookmark.name}</span>
+          {#if bookmark.isDefault}
+            <Icon name="check" size={11} />
+          {/if}
+        </button>
+      {/each}
+      <button
+        type="button"
+        class={toolBtn}
+        title="Add shortcut"
+        aria-label="Add shortcut"
+        onclick={() => openBookmarkForm()}
+      >
+        <Icon name="plus" size={13} />
+        {#if $sftpBookmarks.length === 0}Shortcut{/if}
+      </button>
+    </div>
+
     <div class="grid min-h-0 flex-1 {hideLocal ? '' : 'grid-cols-2 divide-x divide-default'}">
       {#if !hideLocal}
         <SftpPane
@@ -1023,6 +1124,55 @@
           disabled={!prompt.value.trim()}
         >
           {prompt.kind === 'mkdir' ? 'Create' : 'Rename'}
+        </button>
+      </footer>
+    </form>
+  </Modal>
+{/if}
+
+{#if active && bookmarkForm}
+  <Modal label={bookmarkForm.id ? 'Edit shortcut' : 'New shortcut'} onClose={() => (bookmarkForm = null)}>
+    <form
+      onsubmit={(e) => {
+        e.preventDefault();
+        submitBookmarkForm();
+      }}
+    >
+      <header class="border-b border-default px-5 py-3.5">
+        <h2 class="text-sm font-semibold">{bookmarkForm.id ? 'Edit shortcut' : 'New shortcut'}</h2>
+      </header>
+      <div class="space-y-3 px-5 py-4">
+        <label class="block space-y-1">
+          <span class="text-xs text-muted">Name</span>
+          <!-- svelte-ignore a11y_autofocus -->
+          <input autofocus bind:value={bookmarkForm.name} class={field} placeholder="Downloads" />
+        </label>
+        <label class="block space-y-1">
+          <span class="text-xs text-muted">Local folder</span>
+          <input bind:value={bookmarkForm.path} class="{field} font-mono" placeholder="/home/me/Downloads" />
+        </label>
+        <div class="flex items-center justify-between gap-3">
+          <span class="text-sm">
+            Open SFTP tabs here
+            <span class="block text-xs text-faint">The local side starts in this folder instead of home.</span>
+          </span>
+          <Switch bind:checked={bookmarkForm.isDefault} label="Open SFTP tabs here" />
+        </div>
+      </div>
+      <footer class="flex justify-end gap-2 border-t border-default px-5 py-3">
+        <button
+          type="button"
+          class="rounded-full px-4 py-2 text-sm text-muted transition hover:bg-surface-inset hover:text-fg"
+          onclick={() => (bookmarkForm = null)}
+        >
+          Cancel
+        </button>
+        <button
+          type="submit"
+          class="rounded-full bg-accent px-5 py-2 text-sm font-medium text-accent-fg transition hover:opacity-90 disabled:opacity-50"
+          disabled={!bookmarkForm.name.trim() || !bookmarkForm.path.trim()}
+        >
+          Save
         </button>
       </footer>
     </form>
