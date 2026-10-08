@@ -62,6 +62,22 @@ export function guardTransferPaths(local: string, remote: string, localRole: 'de
   }
 }
 
+/** Single-quotes `value` for a POSIX shell (`'` -> `'\''`). */
+export function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", `'\\''`)}'`;
+}
+
+/** The remote command behind `SftpManager.copy`: a recursive copy that keeps modes and
+ *  times, with `--` so a name starting with `-` isn't read as an option. */
+export function copyCommand(from: string, to: string): string {
+  if (from.includes('\0') || to.includes('\0')) throw new Error('Path contains null bytes');
+  return `cp -Rp -- ${shellQuote(from)} ${shellQuote(to)}`;
+}
+
+/** How long a server-side copy may run before it is given up on. A copy runs on the
+ *  host at disk speed, but a big folder can still take a while. */
+export const COPY_TIMEOUT_MS = 6 * 60 * 60 * 1000;
+
 /** How often a running transfer reports progress, at most. */
 export const PROGRESS_INTERVAL_MS = 100;
 
@@ -158,6 +174,18 @@ export class SftpManager {
 
   async rename(from: string, to: string): Promise<void> {
     await new Promise<void>((resolve, reject) => this.sftp.rename(from, to, (err) => (err ? reject(err) : resolve())));
+  }
+
+  /** Copies a remote file or folder to `to` on the same host. SFTP has no copy, so this
+   *  runs `cp` over the connection — the data stays on the server instead of making a
+   *  round trip through this machine. Refuses to overwrite: an existing `to` would
+   *  otherwise be replaced (a file) or get the copy nested inside it (a folder). */
+  async copy(from: string, to: string): Promise<void> {
+    const command = copyCommand(from, to);
+    const exists = await new Promise<boolean>((resolve) => this.sftp.lstat(to, (err) => resolve(!err)));
+    if (exists) throw new Error(`${to} already exists`);
+    const result = await this.sshSession.runShell(command, COPY_TIMEOUT_MS);
+    if (!result.ok) throw new Error(result.stderr?.trim() || result.error || 'copy failed');
   }
 
   /** Reads the first 4096 bytes of a remote file, lossily decoded as UTF-8. */

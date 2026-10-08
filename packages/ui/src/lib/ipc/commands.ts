@@ -158,6 +158,13 @@ export async function sftpRename(sessionId: number, from: string, to: string, op
   if (res.status === 'error') throw new Error(res.error.message);
 }
 
+/** Copy a remote file or folder to another path on the same host (a `cp` there, the
+ *  data never leaves the server); completion arrives as `sftp-op-done`. */
+export async function sftpCopy(sessionId: number, from: string, to: string, opId?: number): Promise<void> {
+  const res = await commands.sftpCopy(sessionId, from, to, opId);
+  if (res.status === 'error') throw new Error(res.error.message);
+}
+
 /** Delete a remote file (or empty directory); completion arrives as `sftp-op-done`. */
 export async function sftpDelete(sessionId: number, path: string, opId?: number): Promise<void> {
   const res = await commands.sftpDelete(sessionId, path, opId);

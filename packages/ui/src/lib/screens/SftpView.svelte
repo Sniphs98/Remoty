@@ -21,7 +21,7 @@
   import { get } from 'svelte/store';
   import { sessions, type Session } from '$lib/stores/sessions';
   import { hosts } from '$lib/stores/hosts';
-  import { sftp, markedEntries, formatBytes, type PaneSide, type PendingOp } from '$lib/stores/sftp';
+  import { sftp, markedEntries, formatBytes, type Pane, type PaneSide, type PendingOp } from '$lib/stores/sftp';
   import { opKey, readyOps } from '$lib/stores/sftpQueue';
   import { lastError } from '$lib/stores/notifications';
   import { runAutomationNow } from '$lib/stores/automations';
@@ -35,6 +35,7 @@
     sftpDownload,
     sftpMkdir,
     sftpRename,
+    sftpCopy,
     sftpDelete,
     sftpPreview,
     sftpReadFile,
@@ -110,6 +111,16 @@
   // component does (the whole SFTP tab's life, §3.2), same as everything else here.
   let hideLocal = $state(false);
   let showTerminal = $state(false);
+
+  // The left pane normally browses this machine. Pointed at the host instead, it shows a
+  // second folder there, so files can be moved between two folders on one machine (drag,
+  // or the Move buttons). It lists through a second SFTP session of its own: the backend
+  // routes a session's listings to its one remote pane, so the right pane's session
+  // can't feed it. Moves still go through the right pane's session — same host, same
+  // paths. Everything below that takes a `side` keeps 'local' meaning "the left pane",
+  // whichever of the two it is showing.
+  let leftHost = $state(false);
+  let leftId = $state<number | undefined>(undefined);
   // Bound to the drawer while it's mounted, so "Run snippet here" can hand it a
   // command. The drawer queues internally if it is still connecting, which is the
   // normal case when the same click both opens it and runs something.
@@ -142,6 +153,17 @@
   }
 
   const view = $derived(backendId != null ? $sftp.get(backendId) : undefined);
+  const leftSession = $derived(leftId != null ? $sftp.get(leftId) : undefined);
+  const connectingPane: Pane = { path: '', entries: [], loading: true, marked: new Set() };
+  const leftPane = $derived(
+    !view
+      ? connectingPane
+      : !leftHost
+        ? view.local
+        : leftSession
+          ? { ...leftSession.remote, error: leftSession.remote.error ?? leftSession.error }
+          : connectingPane
+  );
   // The progress bar: one transfer as before, several (a batch running side by side)
   // as their combined bytes, named by the oldest with a count of the rest.
   const transfers = $derived(view?.transfers ?? []);
@@ -158,7 +180,8 @@
         }
   );
 
-  const localMarkedFiles = $derived(view ? markedEntries(view.local).filter((e) => !e.isDir) : []);
+  const leftMarked = $derived(markedEntries(leftPane));
+  const localMarkedFiles = $derived(leftHost ? [] : leftMarked.filter((e) => !e.isDir));
   const remoteMarked = $derived(view ? markedEntries(view.remote) : []);
   const remoteMarkedFiles = $derived(remoteMarked.filter((e) => !e.isDir));
   const singleRemoteMark = $derived(remoteMarked.length === 1 ? remoteMarked[0] : undefined);
@@ -188,6 +211,61 @@
     }
   }
 
+  /** Re-lists the left pane at `path`, on whichever side it is showing. */
+  function refreshLeft(path: string): void {
+    if (!leftHost) {
+      void refreshLocal(path);
+      return;
+    }
+    const id = leftId;
+    if (id == null) return;
+    sftp.beginLoading(id, 'remote');
+    void sftpList(id, path).catch((err) => sftp.paneError(id, 'remote', errMsg(err)));
+  }
+
+  /** The store slot behind the left pane: this session's local side, or the second
+   *  session's remote one. */
+  function leftSlot(): { id: number | undefined; side: PaneSide } {
+    return leftHost ? { id: leftId, side: 'remote' } : { id: backendId, side: 'local' };
+  }
+
+  function closeLeftSession(): void {
+    const id = leftId;
+    leftId = undefined;
+    if (id == null) return;
+    void sftpClose(id).catch(() => {});
+    sftp.remove(id);
+  }
+
+  // Switches the left pane between this machine and a second folder on the host, which
+  // starts where the right pane is. Back on local, the second session is closed rather
+  // than kept idle, and the local pane is still where it was left.
+  async function setLeftHost(on: boolean): Promise<void> {
+    if (on === leftHost || !view) return;
+    if (!on) {
+      leftHost = false;
+      closeLeftSession();
+      return;
+    }
+    leftHost = true;
+    const start = view.remote.path || '/';
+    let id: number;
+    try {
+      id = await sftpOpen(session.hostName);
+    } catch (err) {
+      leftHost = false;
+      lastError.set(errMsg(err));
+      return;
+    }
+    if (destroyed || !leftHost || leftId != null) {
+      void sftpClose(id).catch(() => {});
+      return;
+    }
+    leftId = id;
+    sftp.open(id, session.hostName);
+    refreshLeft(start);
+  }
+
   // The local pane's first listing: the default bookmark's folder if there is one, else
   // home. A default that no longer lists (deleted, unplugged drive) falls back to home
   // and says why, rather than opening the tab on an error.
@@ -209,6 +287,7 @@
 
   function goToBookmark(bookmark: SftpBookmark): void {
     hideLocal = false;
+    if (leftHost) return;
     void refreshLocal(bookmark.path);
   }
 
@@ -337,6 +416,7 @@
       sftp.remove(backendId);
     }
     stopExternalDrop?.();
+    closeLeftSession();
   });
 
   // Mirror the store connection status to the sidebar dot (the sessions store is the
@@ -369,29 +449,44 @@
     if (id == null || !view || view.pending.length > 0 || outbox.length > 0 || !view.refresh) return;
     const target = view.refresh;
     sftp.clearRefresh(id);
-    if (target === 'local' || target === 'both') void refreshLocal(view.local.path);
+    if (target === 'local' || target === 'both') refreshLeft(leftPane.path);
     if (target === 'remote' || target === 'both') refreshRemote(view.remote.path);
   });
 
   function navigate(side: PaneSide, entry: FileEntryDto): void {
-    if (side === 'local') void refreshLocal(entry.path);
+    if (side === 'local') refreshLeft(entry.path);
     else refreshRemote(entry.path);
   }
 
+  /** The store slot a pane's selection lives in (see leftSlot). */
+  function slot(side: PaneSide): { id: number | undefined; side: PaneSide } {
+    return side === 'local' ? leftSlot() : { id: backendId, side: 'remote' };
+  }
+
   function toggleMark(side: PaneSide, path: string): void {
-    if (backendId != null) sftp.toggleMark(backendId, side, path);
+    const at = slot(side);
+    if (at.id != null) sftp.toggleMark(at.id, at.side, path);
   }
 
   function selectOnly(side: PaneSide, path: string): void {
-    if (backendId != null) sftp.selectOnly(backendId, side, path);
+    const at = slot(side);
+    if (at.id != null) sftp.selectOnly(at.id, at.side, path);
   }
 
   function selectRange(side: PaneSide, path: string): void {
-    if (backendId != null) sftp.selectRange(backendId, side, path);
+    const at = slot(side);
+    if (at.id != null) sftp.selectRange(at.id, at.side, path);
   }
 
   function clearMarks(side: PaneSide): void {
-    if (backendId != null) sftp.clearMarks(backendId, side);
+    const at = slot(side);
+    if (at.id != null) sftp.clearMarks(at.id, at.side);
+  }
+
+  /** Which filesystem a pane's files are on — the left pane's is the host's while it
+   *  shows a folder there, and the right pane's session reads and writes those too. */
+  function fsSide(side: PaneSide): PaneSide {
+    return side === 'local' && leftHost ? 'remote' : side;
   }
 
   // The read-only fallback for a file `fileEdit.ts` won't open in the editor (too
@@ -400,7 +495,7 @@
   async function preview(side: PaneSide, entry: FileEntryDto): Promise<void> {
     const id = backendId;
     if (id == null) return;
-    if (side === 'local') {
+    if (fsSide(side) === 'local') {
       try {
         const content = await previewLocalFile(entry.path);
         sftp.setPreview(id, { path: entry.path, content });
@@ -489,15 +584,70 @@
   }
 
   function startDrag(side: PaneSide, entry: FileEntryDto): void {
-    if (entry.isDir) return;
+    if (entry.isDir && !leftHost) return;
     dragged = { side, entry };
   }
 
-  function dropOn(side: PaneSide): void {
+  // Moves or copies `entries` into `destDir` on the host. A move is an SFTP rename, so a
+  // whole folder moves as cheaply as a file; a copy runs `cp` on the host, so the data
+  // never travels through this machine (and the backend refuses to overwrite). Both
+  // panes re-list afterwards. Onto itself, or a folder into itself or below it, is left
+  // out. A copy's key is its destination — that's the path it writes.
+  function relocate(entries: FileEntryDto[], destDir: string, mode: 'move' | 'copy'): void {
+    enqueue(
+      ...entries
+        .filter((e) => e.name !== '..')
+        .flatMap((entry): BatchOp[] => {
+          const dest = joinRemote(destDir, entry.name);
+          if (dest === entry.path || destDir === entry.path || destDir.startsWith(`${entry.path}/`)) return [];
+          return [
+            mode === 'move'
+              ? {
+                  kind: 'rename',
+                  name: entry.name,
+                  refresh: 'both',
+                  key: opKey('remote', entry.path),
+                  send: (sid, opId) => sftpRename(sid, entry.path, dest, opId)
+                }
+              : {
+                  kind: 'copy',
+                  name: entry.name,
+                  refresh: 'both',
+                  key: opKey('remote', dest),
+                  send: (sid, opId) => sftpCopy(sid, entry.path, dest, opId)
+                }
+          ];
+        })
+    );
+  }
+
+  function leftToRight(mode: 'move' | 'copy'): void {
+    if (view) relocate(leftMarked, view.remote.path, mode);
+  }
+
+  function rightToLeft(mode: 'move' | 'copy'): void {
+    relocate(remoteMarked, leftPane.path, mode);
+  }
+
+  /** Ctrl (Option on macOS, as in Finder) held at the drop copies instead of moving. */
+  function isCopyDrop(event: DragEvent): boolean {
+    return event.ctrlKey || event.altKey;
+  }
+
+  function dropOn(side: PaneSide, event: DragEvent): void {
     const id = backendId;
     const source = dragged;
     dragged = undefined;
-    if (id == null || !view || !source || source.side === side || source.entry.isDir) return;
+    if (id == null || !view || !source || source.side === side) return;
+
+    if (leftHost) {
+      // Dragging a marked entry takes the whole selection with it, like a file manager.
+      const fromPane = source.side === 'local' ? leftPane : view.remote;
+      const entries = fromPane.marked.has(source.entry.path) ? markedEntries(fromPane) : [source.entry];
+      relocate(entries, side === 'local' ? leftPane.path : view.remote.path, isCopyDrop(event) ? 'copy' : 'move');
+      return;
+    }
+    if (source.entry.isDir) return;
 
     if (source.side === 'local' && side === 'remote') {
       enqueue(uploadOp(source.entry.path, view.remote.path, source.entry.name));
@@ -554,7 +704,8 @@
     const id = backendId;
     if (id == null) return;
     try {
-      const content = side === 'remote' ? await sftpReadFile(id, entry.path) : await readLocalFile(entry.path);
+      const content =
+        fsSide(side) === 'remote' ? await sftpReadFile(id, entry.path) : await readLocalFile(entry.path);
       fileEditor = { side, path: entry.path, language: languageForFile(entry.name), content };
     } catch (err) {
       lastError.set(errMsg(err));
@@ -565,7 +716,10 @@
     const id = backendId;
     const editing = fileEditor;
     if (id == null || !editing || !view) return;
-    if (editing.side === 'remote') {
+    if (editing.side === 'local' && leftHost) {
+      await sftpWriteFile(id, editing.path, content);
+      refreshLeft(leftPane.path);
+    } else if (editing.side === 'remote') {
       await sftpWriteFile(id, editing.path, content);
       refreshRemote(view.remote.path);
     } else {
@@ -660,7 +814,12 @@
     const files = remoteMarkedFiles.length;
     return [
       { label: 'Open', icon: entry.isDir ? 'folder' : 'file', onSelect: () => openEntry('remote', entry), disabled: count > 1 },
-      { label: files > 1 ? `Download ${files} files` : 'Download', icon: 'download', onSelect: download, disabled: files === 0 },
+      ...(leftHost
+        ? [
+            { label: count > 1 ? `Move ${count} items to the left folder` : 'Move to the left folder', icon: 'arrow-left', onSelect: () => rightToLeft('move'), disabled: count === 0 },
+            { label: count > 1 ? `Copy ${count} items to the left folder` : 'Copy to the left folder', icon: 'file', onSelect: () => rightToLeft('copy'), disabled: count === 0 }
+          ] satisfies ContextMenuItem[]
+        : [{ label: files > 1 ? `Download ${files} files` : 'Download', icon: 'download', onSelect: download, disabled: files === 0 }] satisfies ContextMenuItem[]),
       { label: 'Rename', icon: 'edit', onSelect: () => openPrompt('rename'), disabled: !singleRemoteMark },
       { label: count > 1 ? `Delete ${count} items` : 'Delete', icon: 'trash', danger: true, onSelect: () => (deleteConfirm = true), disabled: count === 0 },
       {
@@ -694,7 +853,15 @@
   }
 
   function localEntryMenuItems(currentView: NonNullable<typeof view>, entry: FileEntryDto): ContextMenuItem[] {
-    const marked = markedEntries(currentView.local).length;
+    const marked = leftMarked.length;
+    if (leftHost) {
+      return [
+        { label: 'Open', icon: entry.isDir ? 'folder' : 'file', onSelect: () => openEntry('local', entry), disabled: marked > 1 },
+        { label: marked > 1 ? `Move ${marked} items to the right folder` : 'Move to the right folder', icon: 'upload', onSelect: () => leftToRight('move'), disabled: marked === 0 },
+        { label: marked > 1 ? `Copy ${marked} items to the right folder` : 'Copy to the right folder', icon: 'file', onSelect: () => leftToRight('copy'), disabled: marked === 0 },
+        { label: 'Refresh', icon: 'refresh', onSelect: () => refreshLeft(leftPane.path) }
+      ];
+    }
     const files = localMarkedFiles.length;
     return [
       { label: 'Open', icon: entry.isDir ? 'folder' : 'file', onSelect: () => openEntry('local', entry), disabled: marked > 1 },
@@ -711,8 +878,8 @@
     ];
   }
 
-  function localEmptyMenuItems(currentView: NonNullable<typeof view>): ContextMenuItem[] {
-    return [{ label: 'Refresh', icon: 'refresh', onSelect: () => void refreshLocal(currentView.local.path) }];
+  function localEmptyMenuItems(): ContextMenuItem[] {
+    return [{ label: 'Refresh', icon: 'refresh', onSelect: () => refreshLeft(leftPane.path) }];
   }
 
   function openEntryContextMenu(side: PaneSide, entry: FileEntryDto, event: MouseEvent): void {
@@ -725,7 +892,7 @@
   // (remote side) make it the host's default path — where its terminals and this browser
   // open from now on.
   function pathMenuItems(side: PaneSide, currentView: NonNullable<typeof view>): ContextMenuItem[] {
-    const path = currentView[side].path;
+    const path = side === 'local' ? leftPane.path : currentView.remote.path;
     const items: ContextMenuItem[] = [
       { label: 'Copy path', icon: 'file', onSelect: () => void copyPath(path), disabled: !path },
       { label: 'Paste path', icon: 'upload', onSelect: () => void pastePath(side) }
@@ -765,7 +932,7 @@
     }
     if (path === undefined) return;
     // A path that doesn't exist shows as the pane's listing error, like any other.
-    if (side === 'local') void refreshLocal(path);
+    if (side === 'local') refreshLeft(path);
     else refreshRemote(path);
   }
 
@@ -790,7 +957,7 @@
 
   function openEmptyContextMenu(side: PaneSide, event: MouseEvent): void {
     if (!view) return;
-    const items = side === 'remote' ? remoteEmptyMenuItems(view) : localEmptyMenuItems(view);
+    const items = side === 'remote' ? remoteEmptyMenuItems(view) : localEmptyMenuItems();
     contextMenu = { side, x: event.clientX, y: event.clientY, items };
   }
 
@@ -852,48 +1019,12 @@
       <p class="text-sm text-muted">Connecting to {session.hostName}…</p>
     </div>
   {:else}
-    <!-- Local-folder shortcuts: click to open in the local pane, right-click to edit,
-         make default or remove. -->
-    <div
-      class="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-default px-3 py-1.5"
-      role="toolbar"
-      aria-label="Local folder shortcuts"
-    >
-      {#each $sftpBookmarks as bookmark (bookmark.id)}
-        <button
-          type="button"
-          class="{toolBtn} max-w-[14rem] {view.local.path === bookmark.path ? 'border-accent text-fg' : ''}"
-          title={bookmark.isDefault ? `${bookmark.path} (opens by default)` : bookmark.path}
-          onclick={() => goToBookmark(bookmark)}
-          oncontextmenu={(event) => {
-            event.preventDefault();
-            openBookmarkContextMenu(bookmark, event);
-          }}
-        >
-          <Icon name="folder" size={13} />
-          <span class="truncate">{bookmark.name}</span>
-          {#if bookmark.isDefault}
-            <Icon name="check" size={11} />
-          {/if}
-        </button>
-      {/each}
-      <button
-        type="button"
-        class={toolBtn}
-        title="Add shortcut"
-        aria-label="Add shortcut"
-        onclick={() => openBookmarkForm()}
-      >
-        <Icon name="plus" size={13} />
-        {#if $sftpBookmarks.length === 0}Shortcut{/if}
-      </button>
-    </div>
-
     <div class="grid min-h-0 flex-1 {hideLocal ? '' : 'grid-cols-2 divide-x divide-default'}">
       {#if !hideLocal}
         <SftpPane
-          title="Local"
-          pane={view.local}
+          title={leftHost ? `${session.hostName} · 2` : 'Local'}
+          pane={leftPane}
+          dragDirs={leftHost}
           onNavigate={(e) => navigate('local', e)}
           onToggleMark={(p) => toggleMark('local', p)}
           onSelectOnly={(p) => selectOnly('local', p)}
@@ -901,31 +1032,101 @@
           onClearMarks={() => clearMarks('local')}
           onOpenFile={(e) => void openFile('local', e)}
           onDragStart={(e) => startDrag('local', e)}
-          onDrop={() => dropOn('local')}
+          onDrop={(event) => dropOn('local', event)}
           onEntryContextMenu={(e, event) => openEntryContextMenu('local', e, event)}
           onEmptyContextMenu={(event) => openEmptyContextMenu('local', event)}
           onPathContextMenu={(event) => openPathContextMenu('local', event)}
         >
           {#snippet toolbar()}
-            <button
-              type="button"
-              class={toolBtn}
-              title="Upload marked files to the remote directory"
-              disabled={localMarkedFiles.length === 0}
-              onclick={upload}
-            >
-              <Icon name="upload" size={13} />
-              Upload
-            </button>
+            {#if leftHost}
+              <button
+                type="button"
+                class={toolBtn}
+                title="Copy marked entries into the right folder"
+                disabled={leftMarked.length === 0}
+                onclick={() => leftToRight('copy')}
+              >
+                Copy
+                <span class="inline-flex rotate-180"><Icon name="arrow-left" size={13} /></span>
+              </button>
+              <button
+                type="button"
+                class={toolBtn}
+                title="Move marked entries into the right folder (drag, or Ctrl/Option-drag to copy)"
+                disabled={leftMarked.length === 0}
+                onclick={() => leftToRight('move')}
+              >
+                Move
+                <span class="inline-flex rotate-180"><Icon name="arrow-left" size={13} /></span>
+              </button>
+            {:else}
+              <button
+                type="button"
+                class={toolBtn}
+                title="Upload marked files to the remote directory"
+                disabled={localMarkedFiles.length === 0}
+                onclick={upload}
+              >
+                <Icon name="upload" size={13} />
+                Upload
+              </button>
+            {/if}
             <button
               type="button"
               class={toolBtn}
               title="Refresh"
-              aria-label="Refresh local"
-              onclick={() => refreshLocal(view.local.path)}
+              aria-label="Refresh left"
+              onclick={() => refreshLeft(leftPane.path)}
             >
               <Icon name="refresh" size={13} />
             </button>
+            <button
+              type="button"
+              class={toolBtn}
+              title={leftHost ? 'Browse local files here' : `Browse ${session.hostName} here`}
+              aria-label={leftHost ? 'Browse local files here' : `Browse ${session.hostName} here`}
+              aria-pressed={leftHost}
+              onclick={() => void setLeftHost(!leftHost)}
+            >
+              <Icon name={leftHost ? 'monitor' : 'sftp'} size={13} />
+            </button>
+          {/snippet}
+          {#snippet subheader()}
+            {#if !leftHost}
+              <!-- Local-folder shortcuts: click to open, right-click to edit, make
+                   default or remove. Local paths, so not shown while this pane is on
+                   the host. -->
+              <div class="mt-2 flex flex-wrap items-center gap-1.5" role="toolbar" aria-label="Local folder shortcuts">
+                {#each $sftpBookmarks as bookmark (bookmark.id)}
+                  <button
+                    type="button"
+                    class="{toolBtn} max-w-[14rem] {view.local.path === bookmark.path ? 'border-accent text-fg' : ''}"
+                    title={bookmark.isDefault ? `${bookmark.path} (opens by default)` : bookmark.path}
+                    onclick={() => goToBookmark(bookmark)}
+                    oncontextmenu={(event) => {
+                      event.preventDefault();
+                      openBookmarkContextMenu(bookmark, event);
+                    }}
+                  >
+                    <Icon name="folder" size={13} />
+                    <span class="truncate">{bookmark.name}</span>
+                    {#if bookmark.isDefault}
+                      <Icon name="check" size={11} />
+                    {/if}
+                  </button>
+                {/each}
+                <button
+                  type="button"
+                  class={toolBtn}
+                  title="Add shortcut"
+                  aria-label="Add shortcut"
+                  onclick={() => openBookmarkForm()}
+                >
+                  <Icon name="plus" size={13} />
+                  {#if $sftpBookmarks.length === 0}Shortcut{/if}
+                </button>
+              </div>
+            {/if}
           {/snippet}
         </SftpPane>
       {/if}
@@ -933,6 +1134,7 @@
       <SftpPane
         title={session.hostName}
         pane={view.remote}
+        dragDirs={leftHost}
         onNavigate={(e) => navigate('remote', e)}
         onToggleMark={(p) => toggleMark('remote', p)}
         onSelectOnly={(p) => selectOnly('remote', p)}
@@ -940,22 +1142,45 @@
         onClearMarks={() => clearMarks('remote')}
         onOpenFile={(e) => void openFile('remote', e)}
         onDragStart={(e) => startDrag('remote', e)}
-        onDrop={() => dropOn('remote')}
+        onDrop={(event) => dropOn('remote', event)}
         onEntryContextMenu={(e, event) => openEntryContextMenu('remote', e, event)}
         onEmptyContextMenu={(event) => openEmptyContextMenu('remote', event)}
         onPathContextMenu={(event) => openPathContextMenu('remote', event)}
       >
         {#snippet toolbar()}
-          <button
-            type="button"
-            class={toolBtn}
-            title="Download marked files to the local directory"
-            disabled={remoteMarkedFiles.length === 0}
-            onclick={download}
-          >
-            <Icon name="download" size={13} />
-            Download
-          </button>
+          {#if leftHost}
+            <button
+              type="button"
+              class={toolBtn}
+              title="Move marked entries into the left folder (drag, or Ctrl/Option-drag to copy)"
+              disabled={remoteMarked.length === 0 || hideLocal}
+              onclick={() => rightToLeft('move')}
+            >
+              <Icon name="arrow-left" size={13} />
+              Move
+            </button>
+            <button
+              type="button"
+              class={toolBtn}
+              title="Copy marked entries into the left folder"
+              disabled={remoteMarked.length === 0 || hideLocal}
+              onclick={() => rightToLeft('copy')}
+            >
+              <Icon name="arrow-left" size={13} />
+              Copy
+            </button>
+          {:else}
+            <button
+              type="button"
+              class={toolBtn}
+              title="Download marked files to the local directory"
+              disabled={remoteMarkedFiles.length === 0}
+              onclick={download}
+            >
+              <Icon name="download" size={13} />
+              Download
+            </button>
+          {/if}
           <button type="button" class={toolBtn} title="New folder" onclick={() => openPrompt('mkdir')}>
             <Icon name="plus" size={13} />
             Folder

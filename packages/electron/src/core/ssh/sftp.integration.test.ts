@@ -46,6 +46,29 @@ describe('SftpManager against the test target', () => {
     expect(remaining.map((e) => e.name)).not.toContain(dir.split('/').pop());
   });
 
+  it('copies a folder on the host, and refuses to overwrite', async () => {
+    manager = await SftpManager.connect(testTargetHost());
+    const m = manager;
+    const dir = `/home/remoty/it-cp-${Date.now()}`;
+    await m.mkdir(dir);
+    try {
+      await m.mkdir(`${dir}/src it's`);
+      await m.writeFile(`${dir}/src it's/a.txt`, 'copied\n');
+      await m.mkdir(`${dir}/dst`);
+
+      await m.copy(`${dir}/src it's`, `${dir}/dst/src it's`);
+      expect(await m.readFile(`${dir}/dst/src it's/a.txt`)).toBe('copied\n');
+      // The original stays where it was.
+      expect(await m.readFile(`${dir}/src it's/a.txt`)).toBe('copied\n');
+
+      await expect(m.copy(`${dir}/src it's`, `${dir}/dst/src it's`)).rejects.toThrow(/already exists/);
+    } finally {
+      for (const path of [`${dir}/dst/src it's/a.txt`, `${dir}/dst/src it's`, `${dir}/dst`, `${dir}/src it's/a.txt`, `${dir}/src it's`, dir]) {
+        await m.delete(path).catch(() => {});
+      }
+    }
+  });
+
   it('readPreview truncates; readFile does not', async () => {
     manager = await SftpManager.connect(testTargetHost());
     const dir = `/home/remoty/it-${Date.now()}`;

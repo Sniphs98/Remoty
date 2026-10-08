@@ -45,7 +45,7 @@ for what works, what's in progress, and what's still planned.
 | ✅ | **Live dashboard** | A card per server with CPU, RAM, disk, uptime, OS and top processes. Detects running services (Docker, nginx, Node.js, PostgreSQL, Redis). Appliances without a shell can be watched with a plain TCP port check. Cards sort into folders you can collapse (make one with New folder, drag a card to move it), under a section with the shells on this computer. |
 | ✅ | **Terminals** | Real PTY sessions in tabs, GPU-rendered with xterm.js. Copy on select, `Ctrl+Shift+C`/`V`, configurable right-click (menu or PuTTY-style paste). |
 | ✅ | **Local terminals** | Shells on your own computer in the same tabs, no SSH needed: PowerShell, Command Prompt, Git Bash and every WSL distribution on Windows, your login shell and the other installed ones on macOS and Linux. |
-| ✅ | **Two-panel SFTP** | Local and remote side by side, drag & drop (also from your file manager), parallel transfers, smooth even in folders with thousands of files. |
+| ✅ | **Two-panel SFTP** | Local and remote side by side, drag & drop (also from your file manager), parallel transfers, smooth even in folders with thousands of files. Shortcut badges for local folders (one can be where every SFTP tab opens), and two folders on the same server side by side to move or copy between — the copy runs on the server. |
 | ✅ | **In-place file editor** | Double-click a text file to edit it with Monaco, the editor from VS Code, local or remote. |
 | ✅ | **One-click SSH key setup** | Generates an Ed25519 key, installs it, verifies it, and optionally turns off password login, with automatic rollback if anything fails. |
 | ✅ | **ProxyJump** | Hosts behind one or more bastions work everywhere: dashboard, terminal, SFTP. |

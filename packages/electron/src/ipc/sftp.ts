@@ -90,6 +90,15 @@ export function registerSftpIpc(ipcMain: IpcMain, state: GuiState): void {
       .catch((err: Error) => state.emit('sftp-op-done', { sessionId, opId, ok: false, error: err.message }));
   });
 
+  ipcMain.handle('sftp_copy', (_event, sessionId: number, from: string, to: string, opId?: number) => {
+    const manager = state.getSftp(sessionId);
+    if (manager === undefined) return;
+    manager
+      .copy(from, to)
+      .then(() => state.emit('sftp-op-done', { sessionId, opId, ok: true }))
+      .catch((err: Error) => state.emit('sftp-op-done', { sessionId, opId, ok: false, error: err.message }));
+  });
+
   ipcMain.handle('sftp_delete', (_event, sessionId: number, path: string, opId?: number) => {
     const manager = state.getSftp(sessionId);
     if (manager === undefined) return;
