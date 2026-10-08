@@ -170,8 +170,22 @@ const LANGUAGE_BY_FILENAME: Record<string, string> = {
   '.profile': 'shell',
   sshd_config: 'ini',
   ssh_config: 'ini',
-  crontab: 'shell'
+  crontab: 'shell',
+  '.env': 'ini',
+  '.gitconfig': 'ini',
+  '.editorconfig': 'ini',
+  '.npmrc': 'ini',
+  '.yarnrc': 'ini',
+  '.eslintrc': 'json',
+  '.prettierrc': 'json',
+  '.babelrc': 'json'
 };
+
+/** Dotenv variants — `.env.local`, `.env.production`, `.env.example`, … — whose
+ *  "extension" is the environment name, so neither table above would match them. */
+function isDotenvVariant(lower: string): boolean {
+  return lower.startsWith('.env.') && !BINARY_EXTENSIONS.has(extensionOf(lower));
+}
 
 /** Extensions that are essentially always binary — images, archives, executables,
  *  fonts, compiled/media formats. The one thing `isEditableFile` still refuses, since
@@ -254,13 +268,15 @@ function extensionOf(filename: string): string {
 export function isEditableFile(filename: string, sizeBytes: number): boolean {
   if (sizeBytes > MAX_EDITABLE_BYTES) return false;
   const lower = filename.toLowerCase();
-  if (TEXT_FILENAMES.has(lower)) return true;
+  if (TEXT_FILENAMES.has(lower) || isDotenvVariant(lower)) return true;
   return !BINARY_EXTENSIONS.has(extensionOf(lower));
 }
 
 /** The Monaco language id to highlight `filename` with: a specific match by full
- *  filename first (`Dockerfile`, `.bashrc`, …), then by extension, then `plaintext`. */
+ *  filename first (`Dockerfile`, `.bashrc`, `.env.local`, …), then by extension, then
+ *  `plaintext`. The editor's language picker lets the user override a wrong guess. */
 export function languageForFile(filename: string): string {
   const lower = filename.toLowerCase();
+  if (isDotenvVariant(lower)) return 'ini';
   return LANGUAGE_BY_FILENAME[lower] ?? LANGUAGE_BY_EXTENSION[extensionOf(lower)] ?? 'plaintext';
 }

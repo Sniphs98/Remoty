@@ -86,6 +86,16 @@ describe('languageForFile', () => {
     expect(languageForFile('sshd_config')).toBe('ini');
   });
 
+  it('recognises dotenv files, including their per-environment variants', () => {
+    expect(languageForFile('.env')).toBe('ini');
+    expect(languageForFile('.ENV')).toBe('ini');
+    expect(languageForFile('.env.local')).toBe('ini');
+    expect(languageForFile('.env.production')).toBe('ini');
+    expect(languageForFile('app.env')).toBe('ini');
+    expect(isEditableFile('.env.example', 100)).toBe(true);
+    expect(isEditableFile('.env.backup.zip', 100)).toBe(false);
+  });
+
   it('falls back to plaintext for an unmapped or extensionless name', () => {
     expect(languageForFile('Makefile')).toBe('plaintext');
     expect(languageForFile('notes')).toBe('plaintext');

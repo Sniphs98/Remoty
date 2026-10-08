@@ -10,6 +10,7 @@
   import { onDestroy, onMount } from 'svelte';
   import { Button } from '$lib/theme';
   import Modal from '$lib/components/Modal.svelte';
+  import Select from '$lib/components/Select.svelte';
   import { theme } from '$lib/stores/theme';
 
   let {
@@ -33,9 +34,17 @@
   let error = $state<string | undefined>(undefined);
   let themeUnsub: (() => void) | undefined;
 
+  // The highlighting in use: starts as the caller's guess from the filename, and the
+  // header's picker overrides it when that guess is wrong (or `plaintext`). Only the
+  // highlighting changes — the file's bytes and how it's saved stay exactly the same.
+  // svelte-ignore state_referenced_locally
+  let currentLanguage = $state(language);
+  let languages = $state<{ id: string; label: string }[]>([]);
+
   // Typed loosely (the real type comes from the dynamically-imported module) — this
   // component never calls anything on it before Monaco has resolved.
   let editorInstance: { getValue(): string; dispose(): void } | undefined;
+  let setLanguage: ((id: string) => void) | undefined;
 
   onMount(() => {
     let disposed = false;
@@ -60,6 +69,14 @@
         scrollBeyondLastLine: false
       });
       editorInstance = editor;
+      setLanguage = (id) => {
+        const model = editor.getModel();
+        if (model) monaco.editor.setModelLanguage(model, id);
+      };
+      languages = monaco.languages
+        .getLanguages()
+        .map((l) => ({ id: l.id, label: l.aliases?.[0] ?? l.id }))
+        .sort((a, b) => a.label.localeCompare(b.label));
       ready = true;
       editor.onDidChangeModelContent(() => {
         dirty = true;
@@ -98,7 +115,23 @@
   <div class="flex min-h-0 flex-1 flex-col">
     <header class="flex items-center justify-between gap-3 border-b border-default py-3 pl-5 pr-12">
       <h2 class="min-w-0 truncate font-mono text-xs text-muted" title={path}>{path}</h2>
-      <span class="shrink-0 text-xs text-faint">{language}</span>
+      {#if ready}
+        <Select
+          value={currentLanguage}
+          onchange={(e: Event) => {
+            currentLanguage = (e.currentTarget as HTMLSelectElement).value;
+            setLanguage?.(currentLanguage);
+          }}
+          class="shrink-0 rounded-md bg-surface-inset py-1 pl-2 text-xs text-fg outline-none focus-visible:ring-2 focus-visible:ring-focus"
+          aria-label="Language"
+        >
+          {#each languages as l (l.id)}
+            <option value={l.id}>{l.label}</option>
+          {/each}
+        </Select>
+      {:else}
+        <span class="shrink-0 text-xs text-faint">{language}</span>
+      {/if}
     </header>
 
     <div class="relative h-[60vh] min-h-[280px]">
