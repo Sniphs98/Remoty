@@ -523,6 +523,12 @@ test('editing a text file opens Monaco, and Save writes the content back', async
   // Monaco is dynamically imported and boots a real worker — give it real time.
   await expect(editorDialog.locator('.monaco-editor')).toBeVisible({ timeout: 15_000 });
 
+  // The language picker starts on the filename's guess and can be switched by hand.
+  const languagePicker = editorDialog.getByRole('combobox', { name: 'Language' });
+  await expect(languagePicker).toHaveValue('yaml');
+  await languagePicker.selectOption('ini');
+  await expect(languagePicker).toHaveValue('ini');
+
   // Click the rendered text surface, not Monaco's hidden EditContext input target (it
   // has no visible box of its own) — exactly what a real user clicks, which focuses the
   // input as a side effect.
