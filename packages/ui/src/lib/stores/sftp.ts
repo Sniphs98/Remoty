@@ -8,7 +8,7 @@ import type { FileEntryDto, TransferProgressDto } from '$lib/bindings';
 
 export type PaneSide = 'local' | 'remote';
 type SftpStatus = 'connecting' | 'connected' | 'failed';
-type OpKind = 'upload' | 'download' | 'mkdir' | 'rename' | 'delete';
+type OpKind = 'upload' | 'download' | 'mkdir' | 'rename' | 'copy' | 'delete';
 
 /** One side's browsing state: current directory, its entries, and the marked set. */
 export interface Pane {

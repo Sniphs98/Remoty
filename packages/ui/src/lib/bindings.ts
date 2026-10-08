@@ -82,6 +82,9 @@ export const commands = {
   async sftpRename(sessionId: number, from: string, to: string, opId?: number): Promise<Result<null, CommandError>> {
     return call('sftp_rename', sessionId, from, to, opId);
   },
+  async sftpCopy(sessionId: number, from: string, to: string, opId?: number): Promise<Result<null, CommandError>> {
+    return call('sftp_copy', sessionId, from, to, opId);
+  },
   async sftpDelete(sessionId: number, path: string, opId?: number): Promise<Result<null, CommandError>> {
     return call('sftp_delete', sessionId, path, opId);
   },

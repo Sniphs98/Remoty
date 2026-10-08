@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { guardTransferPaths, listLocalDir, posixParent, previewLocalFile, sortEntries, throttleProgress, type FileEntry } from './sftp.js';
+import { copyCommand, guardTransferPaths, listLocalDir, posixParent, previewLocalFile, sortEntries, throttleProgress, type FileEntry } from './sftp.js';
 
 // sftp.rs is almost entirely I/O against a live SFTP session (untestable
 // without a real server); this ports what's pure or exercisable against the
@@ -61,6 +61,24 @@ describe('guardTransferPaths', () => {
 
   it('accepts an ordinary local/remote pair', () => {
     expect(() => guardTransferPaths('/tmp/file.txt', '/remote/file.txt', 'destination')).not.toThrow();
+  });
+});
+
+describe('copyCommand', () => {
+  it('copies recursively, keeping modes and times, with the paths quoted after --', () => {
+    expect(copyCommand('/srv/a b', '/srv/dst/a b')).toBe("cp -Rp -- '/srv/a b' '/srv/dst/a b'");
+  });
+
+  it('escapes a single quote inside a path', () => {
+    expect(copyCommand("/srv/it's", '/x')).toBe("cp -Rp -- '/srv/it'\\''s' '/x'");
+  });
+
+  it('keeps shell syntax in a name inert', () => {
+    expect(copyCommand('/srv/$(rm -rf ~)', '/x')).toBe("cp -Rp -- '/srv/$(rm -rf ~)' '/x'");
+  });
+
+  it('rejects a null byte', () => {
+    expect(() => copyCommand('/srv/a\0b', '/x')).toThrow(/null/);
   });
 });
 

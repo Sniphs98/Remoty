@@ -35,6 +35,7 @@
     sftpDownload,
     sftpMkdir,
     sftpRename,
+    sftpCopy,
     sftpDelete,
     sftpPreview,
     sftpReadFile,
@@ -587,10 +588,12 @@
     dragged = { side, entry };
   }
 
-  // Moves `entries` into `destDir` on the host — an SFTP rename, so nothing is copied
-  // and a whole folder moves as cheaply as a file. Both panes re-list afterwards. A
-  // move onto itself, or of a folder into itself or below it, is left out.
-  function move(entries: FileEntryDto[], destDir: string): void {
+  // Moves or copies `entries` into `destDir` on the host. A move is an SFTP rename, so a
+  // whole folder moves as cheaply as a file; a copy runs `cp` on the host, so the data
+  // never travels through this machine (and the backend refuses to overwrite). Both
+  // panes re-list afterwards. Onto itself, or a folder into itself or below it, is left
+  // out. A copy's key is its destination — that's the path it writes.
+  function relocate(entries: FileEntryDto[], destDir: string, mode: 'move' | 'copy'): void {
     enqueue(
       ...entries
         .filter((e) => e.name !== '..')
@@ -598,27 +601,40 @@
           const dest = joinRemote(destDir, entry.name);
           if (dest === entry.path || destDir === entry.path || destDir.startsWith(`${entry.path}/`)) return [];
           return [
-            {
-              kind: 'rename',
-              name: entry.name,
-              refresh: 'both',
-              key: opKey('remote', entry.path),
-              send: (sid, opId) => sftpRename(sid, entry.path, dest, opId)
-            }
+            mode === 'move'
+              ? {
+                  kind: 'rename',
+                  name: entry.name,
+                  refresh: 'both',
+                  key: opKey('remote', entry.path),
+                  send: (sid, opId) => sftpRename(sid, entry.path, dest, opId)
+                }
+              : {
+                  kind: 'copy',
+                  name: entry.name,
+                  refresh: 'both',
+                  key: opKey('remote', dest),
+                  send: (sid, opId) => sftpCopy(sid, entry.path, dest, opId)
+                }
           ];
         })
     );
   }
 
-  function moveLeftToRight(): void {
-    if (view) move(leftMarked, view.remote.path);
+  function leftToRight(mode: 'move' | 'copy'): void {
+    if (view) relocate(leftMarked, view.remote.path, mode);
   }
 
-  function moveRightToLeft(): void {
-    move(remoteMarked, leftPane.path);
+  function rightToLeft(mode: 'move' | 'copy'): void {
+    relocate(remoteMarked, leftPane.path, mode);
   }
 
-  function dropOn(side: PaneSide): void {
+  /** Ctrl (Option on macOS, as in Finder) held at the drop copies instead of moving. */
+  function isCopyDrop(event: DragEvent): boolean {
+    return event.ctrlKey || event.altKey;
+  }
+
+  function dropOn(side: PaneSide, event: DragEvent): void {
     const id = backendId;
     const source = dragged;
     dragged = undefined;
@@ -628,7 +644,7 @@
       // Dragging a marked entry takes the whole selection with it, like a file manager.
       const fromPane = source.side === 'local' ? leftPane : view.remote;
       const entries = fromPane.marked.has(source.entry.path) ? markedEntries(fromPane) : [source.entry];
-      move(entries, side === 'local' ? leftPane.path : view.remote.path);
+      relocate(entries, side === 'local' ? leftPane.path : view.remote.path, isCopyDrop(event) ? 'copy' : 'move');
       return;
     }
     if (source.entry.isDir) return;
@@ -798,9 +814,12 @@
     const files = remoteMarkedFiles.length;
     return [
       { label: 'Open', icon: entry.isDir ? 'folder' : 'file', onSelect: () => openEntry('remote', entry), disabled: count > 1 },
-      leftHost
-        ? { label: count > 1 ? `Move ${count} items to the left folder` : 'Move to the left folder', icon: 'arrow-left', onSelect: moveRightToLeft, disabled: count === 0 }
-        : { label: files > 1 ? `Download ${files} files` : 'Download', icon: 'download', onSelect: download, disabled: files === 0 },
+      ...(leftHost
+        ? [
+            { label: count > 1 ? `Move ${count} items to the left folder` : 'Move to the left folder', icon: 'arrow-left', onSelect: () => rightToLeft('move'), disabled: count === 0 },
+            { label: count > 1 ? `Copy ${count} items to the left folder` : 'Copy to the left folder', icon: 'file', onSelect: () => rightToLeft('copy'), disabled: count === 0 }
+          ] satisfies ContextMenuItem[]
+        : [{ label: files > 1 ? `Download ${files} files` : 'Download', icon: 'download', onSelect: download, disabled: files === 0 }] satisfies ContextMenuItem[]),
       { label: 'Rename', icon: 'edit', onSelect: () => openPrompt('rename'), disabled: !singleRemoteMark },
       { label: count > 1 ? `Delete ${count} items` : 'Delete', icon: 'trash', danger: true, onSelect: () => (deleteConfirm = true), disabled: count === 0 },
       {
@@ -838,7 +857,8 @@
     if (leftHost) {
       return [
         { label: 'Open', icon: entry.isDir ? 'folder' : 'file', onSelect: () => openEntry('local', entry), disabled: marked > 1 },
-        { label: marked > 1 ? `Move ${marked} items to the right folder` : 'Move to the right folder', icon: 'upload', onSelect: moveLeftToRight, disabled: marked === 0 },
+        { label: marked > 1 ? `Move ${marked} items to the right folder` : 'Move to the right folder', icon: 'upload', onSelect: () => leftToRight('move'), disabled: marked === 0 },
+        { label: marked > 1 ? `Copy ${marked} items to the right folder` : 'Copy to the right folder', icon: 'file', onSelect: () => leftToRight('copy'), disabled: marked === 0 },
         { label: 'Refresh', icon: 'refresh', onSelect: () => refreshLeft(leftPane.path) }
       ];
     }
@@ -1012,7 +1032,7 @@
           onClearMarks={() => clearMarks('local')}
           onOpenFile={(e) => void openFile('local', e)}
           onDragStart={(e) => startDrag('local', e)}
-          onDrop={() => dropOn('local')}
+          onDrop={(event) => dropOn('local', event)}
           onEntryContextMenu={(e, event) => openEntryContextMenu('local', e, event)}
           onEmptyContextMenu={(event) => openEmptyContextMenu('local', event)}
           onPathContextMenu={(event) => openPathContextMenu('local', event)}
@@ -1022,9 +1042,19 @@
               <button
                 type="button"
                 class={toolBtn}
-                title="Move marked entries into the right folder"
+                title="Copy marked entries into the right folder"
                 disabled={leftMarked.length === 0}
-                onclick={moveLeftToRight}
+                onclick={() => leftToRight('copy')}
+              >
+                Copy
+                <span class="inline-flex rotate-180"><Icon name="arrow-left" size={13} /></span>
+              </button>
+              <button
+                type="button"
+                class={toolBtn}
+                title="Move marked entries into the right folder (drag, or Ctrl/Option-drag to copy)"
+                disabled={leftMarked.length === 0}
+                onclick={() => leftToRight('move')}
               >
                 Move
                 <span class="inline-flex rotate-180"><Icon name="arrow-left" size={13} /></span>
@@ -1112,7 +1142,7 @@
         onClearMarks={() => clearMarks('remote')}
         onOpenFile={(e) => void openFile('remote', e)}
         onDragStart={(e) => startDrag('remote', e)}
-        onDrop={() => dropOn('remote')}
+        onDrop={(event) => dropOn('remote', event)}
         onEntryContextMenu={(e, event) => openEntryContextMenu('remote', e, event)}
         onEmptyContextMenu={(event) => openEmptyContextMenu('remote', event)}
         onPathContextMenu={(event) => openPathContextMenu('remote', event)}
@@ -1122,12 +1152,22 @@
             <button
               type="button"
               class={toolBtn}
-              title="Move marked entries into the left folder"
+              title="Move marked entries into the left folder (drag, or Ctrl/Option-drag to copy)"
               disabled={remoteMarked.length === 0 || hideLocal}
-              onclick={moveRightToLeft}
+              onclick={() => rightToLeft('move')}
             >
               <Icon name="arrow-left" size={13} />
               Move
+            </button>
+            <button
+              type="button"
+              class={toolBtn}
+              title="Copy marked entries into the left folder"
+              disabled={remoteMarked.length === 0 || hideLocal}
+              onclick={() => rightToLeft('copy')}
+            >
+              <Icon name="arrow-left" size={13} />
+              Copy
             </button>
           {:else}
             <button

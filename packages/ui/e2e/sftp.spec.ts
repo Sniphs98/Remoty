@@ -164,6 +164,14 @@ async function boot(
               setTimeout(() => fire('sftp-op-done', { sessionId, opId, ok: true }), 0);
               return Promise.resolve(null);
             }
+            case 'sftp_copy': {
+              const [sessionId, from, to, opId] = args as [number, string, string, number];
+              sftpCalls.push(`copy ${from} ${to}`);
+              const e = (remote[parentOf(from)] ?? []).find((x) => x.path === from);
+              if (e) (remote[parentOf(to)] ||= []).push({ ...e, path: to, name: baseName(to) });
+              setTimeout(() => fire('sftp-op-done', { sessionId, opId, ok: true }), 0);
+              return Promise.resolve(null);
+            }
             case 'sftp_mkdir': {
               const [sessionId, path, opId] = args as [number, string, number];
               sftpCalls.push(`mkdir ${path}`);
@@ -877,6 +885,30 @@ test.describe('two folders on one host', () => {
     expect(await page.evaluate(() => (window as unknown as { __sftpCalls: string[] }).__sftpCalls)).toContain(
       'rename /config.yml'
     );
+  });
+
+  test('Copy leaves the original where it was', async ({ page }) => {
+    await showSecondFolder(page);
+    await right(page).getByRole('button', { name: 'var', exact: true }).click();
+    await left(page).getByRole('checkbox', { name: 'Mark app.log' }).click();
+    await page.getByRole('button', { name: 'Copy', exact: true }).first().click();
+
+    await expect(right(page).getByText('app.log')).toBeVisible();
+    await expect(left(page).getByText('app.log')).toBeVisible();
+    expect(await page.evaluate(() => (window as unknown as { __sftpCalls: string[] }).__sftpCalls)).toContain(
+      'copy /app.log /var/app.log'
+    );
+  });
+
+  test('Ctrl-dragging copies instead of moving', async ({ page }) => {
+    await showSecondFolder(page);
+    await left(page).getByRole('button', { name: 'var', exact: true }).click();
+    await page.keyboard.down('Control');
+    await right(page).getByRole('button', { name: 'config.yml' }).dragTo(left(page));
+    await page.keyboard.up('Control');
+
+    await expect(left(page).getByText('config.yml')).toBeVisible();
+    await expect(right(page).getByText('config.yml')).toBeVisible();
   });
 
   test('Move sends the marked entries, folders included, into the other folder', async ({ page }) => {

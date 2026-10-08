@@ -47,7 +47,8 @@
     onClearMarks: () => void;
     onOpenFile: (entry: FileEntryDto) => void;
     onDragStart: (entry: FileEntryDto) => void;
-    onDrop: () => void;
+    /** The drop event is passed on for its modifier keys (a copy instead of a move). */
+    onDrop: (event: DragEvent) => void;
     onEntryContextMenu: (entry: FileEntryDto, event: MouseEvent) => void;
     onEmptyContextMenu: (event: MouseEvent) => void;
     /** Right-click on the current-path line (copy / paste / set as default). */
@@ -167,7 +168,7 @@
     ondrop={(event) => {
       event.preventDefault();
       dragActive = false;
-      onDrop();
+      onDrop(event);
     }}
     onclick={(event) => {
       if (event.currentTarget === event.target) onClearMarks();
