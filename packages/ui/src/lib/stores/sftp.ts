@@ -48,7 +48,8 @@ export interface PendingOp {
   id: number;
   kind: OpKind;
   name?: string;
-  refresh: PaneSide;
+  /** `both` for a move between the two panes' folders on one host. */
+  refresh: PaneSide | 'both';
   /** Ops enqueued by one user action share a batch; batches run one after another. */
   batch: number;
   /** What the op writes to (see `opKey`); two ops on the same key never overlap. */
@@ -146,7 +147,7 @@ export function formatBytes(bytes: number): string {
 /** Widen the pending refresh target: two different sides collapse to `both`. */
 export function mergeRefresh(
   current: PaneSide | 'both' | undefined,
-  next: PaneSide
+  next: PaneSide | 'both'
 ): PaneSide | 'both' {
   if (!current || current === next) return next;
   return 'both';

@@ -34,7 +34,9 @@
     onEntryContextMenu,
     onEmptyContextMenu,
     onPathContextMenu,
-    toolbar
+    dragDirs = false,
+    toolbar,
+    subheader
   }: {
     title: string;
     pane: Pane;
@@ -50,7 +52,12 @@
     onEmptyContextMenu: (event: MouseEvent) => void;
     /** Right-click on the current-path line (copy / paste / set as default). */
     onPathContextMenu?: (event: MouseEvent) => void;
+    /** Folders can be dragged too — a move within one host, where a whole folder is as
+     *  cheap to move as a file. Transfers stay files-only. */
+    dragDirs?: boolean;
     toolbar?: Snippet;
+    /** Under the path line, e.g. the local pane's folder shortcuts. */
+    subheader?: Snippet;
   } = $props();
 
   let dragActive = $state(false);
@@ -135,6 +142,7 @@
     >
       {pane.path || '—'}
     </div>
+    {@render subheader?.()}
   </header>
 
   <!-- The click/contextmenu handlers here are a deselect-empty-space convenience, not
@@ -223,9 +231,9 @@
               type="button"
               class="{rowBase} {marked ? 'bg-accent/15 text-fg' : 'text-muted hover:bg-surface-inset hover:text-fg'}"
               title={entry.name}
-              draggable={!isParent && !entry.isDir}
+              draggable={!isParent && (dragDirs || !entry.isDir)}
               ondragstart={() => {
-                if (!isParent && !entry.isDir) onDragStart(entry);
+                if (!isParent && (dragDirs || !entry.isDir)) onDragStart(entry);
               }}
               onclick={(event) => (isParent ? onNavigate(entry) : click(entry, event))}
               ondblclick={() => open(entry)}

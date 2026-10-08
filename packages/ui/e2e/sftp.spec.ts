@@ -154,10 +154,12 @@ async function boot(
             case 'sftp_rename': {
               const [sessionId, from, to, opId] = args as [number, string, string, number];
               sftpCalls.push(`rename ${from}`);
+              // A real rename: the entry leaves its folder and lands in the target's,
+              // so a move between two folders lists correctly on both sides.
               const e = (remote[parentOf(from)] ?? []).find((x) => x.path === from);
               if (e) {
-                e.path = to;
-                e.name = baseName(to);
+                remote[parentOf(from)] = remote[parentOf(from)].filter((x) => x !== e);
+                (remote[parentOf(to)] ||= []).push({ ...e, path: to, name: baseName(to) });
               }
               setTimeout(() => fire('sftp-op-done', { sessionId, opId, ok: true }), 0);
               return Promise.resolve(null);
@@ -822,6 +824,14 @@ test.describe('local folder shortcuts', () => {
     await expect(localPane(page).getByText('notes.txt')).toHaveCount(0);
   });
 
+  test('the badges sit in the local pane, under its path', async ({ page }) => {
+    await boot(page);
+    await page.getByTitle('files on web-1').click();
+    await expect(localPane(page).getByText('notes.txt')).toBeVisible();
+    const section = page.getByRole('region', { name: 'Local', exact: true }).locator('xpath=..');
+    await expect(section.getByRole('toolbar', { name: 'Local folder shortcuts' })).toBeVisible();
+  });
+
   test('right-click on a badge removes it', async ({ page }) => {
     await boot(page);
     await page.getByTitle('files on web-1').click();
@@ -834,6 +844,51 @@ test.describe('local folder shortcuts', () => {
     await shortcuts(page).getByRole('button', { name: 'Work' }).click({ button: 'right' });
     await page.getByRole('menu').getByRole('menuitem', { name: 'Remove' }).click();
     await expect(shortcuts(page).getByRole('button', { name: 'Work' })).toHaveCount(0);
+  });
+});
+
+test.describe('two folders on one host', () => {
+  const left = (page: Page) => page.getByRole('region', { name: 'web-1 · 2 file list' });
+  const right = (page: Page) => page.getByRole('region', { name: 'web-1 file list' });
+
+  async function showSecondFolder(page: Page): Promise<void> {
+    await boot(page);
+    await page.getByTitle('files on web-1').click();
+    await expect(right(page).getByText('config.yml')).toBeVisible();
+    await page.getByRole('button', { name: 'Browse web-1 here' }).click();
+    // It starts where the right pane is.
+    await expect(left(page).getByText('config.yml')).toBeVisible();
+    await expect(page.getByRole('toolbar', { name: 'Local folder shortcuts' })).toHaveCount(0);
+  }
+
+  test('the left pane can show the host, and switch back to local files', async ({ page }) => {
+    await showSecondFolder(page);
+    await page.getByRole('button', { name: 'Browse local files here' }).click();
+    await expect(page.getByRole('region', { name: 'Local file list' }).getByText('notes.txt')).toBeVisible();
+  });
+
+  test('dragging a file from one folder to the other moves it', async ({ page }) => {
+    await showSecondFolder(page);
+    await left(page).getByRole('button', { name: 'var', exact: true }).click();
+    await right(page).getByRole('button', { name: 'config.yml' }).dragTo(left(page));
+
+    await expect(left(page).getByText('config.yml')).toBeVisible();
+    await expect(right(page).getByText('config.yml')).toHaveCount(0);
+    expect(await page.evaluate(() => (window as unknown as { __sftpCalls: string[] }).__sftpCalls)).toContain(
+      'rename /config.yml'
+    );
+  });
+
+  test('Move sends the marked entries, folders included, into the other folder', async ({ page }) => {
+    await showSecondFolder(page);
+    await right(page).getByRole('button', { name: 'var', exact: true }).click();
+    await left(page).getByRole('checkbox', { name: 'Mark app.log' }).click();
+    await left(page).getByRole('checkbox', { name: 'Mark photo.png' }).click();
+    await page.getByRole('button', { name: 'Move', exact: true }).first().click();
+
+    await expect(right(page).getByText('app.log')).toBeVisible();
+    await expect(right(page).getByText('photo.png')).toBeVisible();
+    await expect(left(page).getByText('app.log')).toHaveCount(0);
   });
 });
 
@@ -906,3 +961,4 @@ test.describe('the path line', () => {
     await expect(menu.getByRole('menuitem', { name: 'Set as default path' })).toHaveCount(0);
   });
 });
+
