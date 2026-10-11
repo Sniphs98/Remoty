@@ -61,7 +61,7 @@
   class="rounded-xl border bg-surface p-2.5 {command.risk === 'danger' && command.state === 'proposed' ? 'border-[var(--status-crit)]' : 'border-default'}"
   data-testid="ai-command"
 >
-  <pre class="select-text overflow-x-auto whitespace-pre-wrap break-all rounded-lg bg-surface-inset px-2.5 py-2 font-mono text-xs text-fg">{command.command}</pre>
+  <pre class="select-text overflow-x-auto whitespace-pre-wrap break-all rounded-lg bg-surface-well px-2.5 py-2 font-mono text-xs text-fg">{command.command}</pre>
   {#if command.explanation}
     <p class="mt-1.5 select-text text-xs text-muted">{command.explanation}</p>
   {/if}
@@ -106,7 +106,7 @@
   </div>
 
   {#if command.state === 'ran' && showOutput}
-    <pre class="mt-2 max-h-60 select-text overflow-auto whitespace-pre-wrap break-all rounded-lg bg-surface-inset px-2.5 py-2 font-mono text-[11px] text-muted">{command.output || '(no output)'}</pre>
+    <pre class="mt-2 max-h-60 select-text overflow-auto whitespace-pre-wrap break-all rounded-lg bg-surface-well px-2.5 py-2 font-mono text-[11px] text-muted">{command.output || '(no output)'}</pre>
     {#if command.note}<p class="mt-1 text-[11px] text-faint">{command.note}</p>{/if}
   {/if}
 </div>

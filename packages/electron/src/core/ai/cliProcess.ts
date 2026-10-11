@@ -107,7 +107,15 @@ export interface ProcessResult {
 export function runProcess(
   path: string,
   args: string[],
-  options: { stdin?: string; cwd?: string; signal?: AbortSignal; env?: NodeJS.ProcessEnv; platform?: NodeJS.Platform } = {}
+  options: {
+    stdin?: string;
+    cwd?: string;
+    signal?: AbortSignal;
+    env?: NodeJS.ProcessEnv;
+    platform?: NodeJS.Platform;
+    /** Each piece of output as it arrives (it is collected in `stdout` as well). */
+    onStdout?: (chunk: string) => void;
+  } = {}
 ): Promise<ProcessResult> {
   const platform = options.platform ?? process.platform;
   const shell = needsShell(path, platform);
@@ -117,7 +125,10 @@ export function runProcess(
       : spawn(path, args, { cwd: options.cwd, env: options.env, windowsHide: true });
     let stdout = '';
     let stderr = '';
-    child.stdout.setEncoding('utf-8').on('data', (d: string) => (stdout += d));
+    child.stdout.setEncoding('utf-8').on('data', (d: string) => {
+      stdout += d;
+      options.onStdout?.(d);
+    });
     child.stderr.setEncoding('utf-8').on('data', (d: string) => (stderr += d));
     const onAbort = (): void => {
       child.kill();
@@ -160,4 +171,81 @@ export function lastLine(text: string): string {
       .filter(Boolean)
       .pop() ?? ''
   );
+}
+
+/** Splits a stream into whole lines, for a CLI that prints one JSON event per line. */
+export function lineSplitter(onLine: (line: string) => void): (chunk: string) => void {
+  let rest = '';
+  return (chunk) => {
+    const lines = (rest + chunk).split('\n');
+    rest = lines.pop() ?? '';
+    for (const line of lines) if (line.trim()) onLine(line);
+  };
+}
+
+const ESCAPES: Record<string, string> = { '"': '"', '\\': '\\', '/': '/', b: '\b', f: '\f', n: '\n', r: '\r', t: '\t' };
+
+/**
+ * The value of the top-level string field `key` in a JSON object that is still being
+ * written (`{"text":"Check the di`), as far as it has arrived — so an answer can be
+ * shown while the model is still producing it. Undefined until the field starts.
+ */
+export function partialStringField(json: string, key: string): string | undefined {
+  let depth = 0;
+  let i = 0;
+  const readString = (): { value: string; done: boolean } => {
+    // At the opening quote.
+    let value = '';
+    i++;
+    while (i < json.length) {
+      const ch = json[i];
+      if (ch === '"') {
+        i++;
+        return { value, done: true };
+      }
+      if (ch === '\\') {
+        const next = json[i + 1];
+        if (next === undefined) break;
+        if (next === 'u') {
+          const hex = json.slice(i + 2, i + 6);
+          if (hex.length < 4) break;
+          value += String.fromCharCode(parseInt(hex, 16));
+          i += 6;
+        } else {
+          value += ESCAPES[next] ?? next;
+          i += 2;
+        }
+        continue;
+      }
+      value += ch;
+      i++;
+    }
+    return { value, done: false };
+  };
+  while (i < json.length) {
+    const ch = json[i];
+    if (ch === '"') {
+      const start = i;
+      const { value, done } = readString();
+      if (!done) return undefined;
+      // A key at the top level: is it ours, and does its string value start?
+      if (depth === 1 && value === key) {
+        let j = i;
+        while (j < json.length && /\s/.test(json[j])) j++;
+        if (json[j] !== ':') continue;
+        j++;
+        while (j < json.length && /\s/.test(json[j])) j++;
+        if (j >= json.length) return undefined;
+        if (json[j] !== '"') return undefined;
+        i = j;
+        return readString().value;
+      }
+      if (i === start) i++;
+      continue;
+    }
+    if (ch === '{' || ch === '[') depth++;
+    else if (ch === '}' || ch === ']') depth--;
+    i++;
+  }
+  return undefined;
 }

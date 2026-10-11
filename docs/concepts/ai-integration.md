@@ -53,7 +53,9 @@ Abweichungen vom Konzept unten (*Weg 2*):
 - **Systemprompt:** Claude Code bekommt Remotys eingefrorenen Prompt plus einen Zusatz zum Antwortformat
   (`--system-prompt-file`). Codex hat keinen eigenen Schalter dafür, dort steht er am Anfang der ersten Nachricht.
 - **Modell:** leer = der Standard der CLI (passt zum Abo); sonst z. B. `opus`/`sonnet` bzw. ein Codex-Modell.
-- **Kein Mitstreamen:** Die Antwort erscheint als Ganzes, wenn die CLI fertig ist.
+- **Mitstreamen:** Claude Code läuft mit `--output-format stream-json --include-partial-messages`; Remoty liest den
+  Text der Antwort aus dem noch unvollständigen JSON und zeigt ihn, während Claude schreibt. `codex exec` gibt die
+  Nachricht nur als Ganzes aus — dort erscheint die Antwort, wenn Codex fertig ist (bis dahin „Thinking…“).
 - **ChatGPT-Direktlogin (experimentell) noch nicht gebaut:** Die Codex-CLI deckt das ChatGPT-Abo offiziell ab.
 
 

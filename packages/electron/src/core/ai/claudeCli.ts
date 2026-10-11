@@ -3,7 +3,18 @@ import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import type { AiBackend, TurnRequest, TurnResult } from './backend.js';
-import { answerCalls, answerText, childEnv, CliNotFoundError, type CliStatus, findExecutable, lastLine, runProcess } from './cliProcess.js';
+import {
+  answerCalls,
+  answerText,
+  childEnv,
+  CliNotFoundError,
+  type CliStatus,
+  findExecutable,
+  lastLine,
+  lineSplitter,
+  partialStringField,
+  runProcess
+} from './cliProcess.js';
 import { cliPrompt } from './history.js';
 import { CLI_ANSWER_SCHEMA, cliSystemPrompt } from './prompt.js';
 
@@ -45,8 +56,12 @@ export function claudeExecutable(cliPath?: string): string {
 export function claudeArgs(opts: { model: string; systemFile: string; sessionId: string; resume: boolean }): string[] {
   return [
     '-p',
+    // One event per line, with the answer's JSON as it is written, so its text can be
+    // shown while Claude is still writing it.
     '--output-format',
-    'json',
+    'stream-json',
+    '--verbose',
+    '--include-partial-messages',
     '--json-schema',
     JSON.stringify(CLI_ANSWER_SCHEMA),
     // Nothing to run, read or fetch: the user runs the commands, in their terminal.
@@ -70,18 +85,51 @@ export function claudeArgs(opts: { model: string; systemFile: string; sessionId:
   ];
 }
 
-/** The result object among what the CLI printed (one JSON document). */
-export function parseClaudeResult(stdout: string): ClaudeResult | undefined {
-  const text = stdout.trim();
-  for (const candidate of [text, ...text.split('\n').reverse()]) {
-    try {
-      const parsed = JSON.parse(candidate) as unknown;
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed as ClaudeResult;
-    } catch {
-      // Not this one.
-    }
+function jsonObject(text: string): Record<string, unknown> | undefined {
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : undefined;
+  } catch {
+    return undefined;
   }
-  return undefined;
+}
+
+/** The result object among what the CLI printed: the `result` event of a stream, or
+ *  the one JSON document it printed. */
+export function parseClaudeResult(stdout: string): ClaudeResult | undefined {
+  const lines = stdout.trim().split('\n').reverse();
+  for (const line of lines) {
+    const event = jsonObject(line);
+    if (event?.type === 'result') return event as ClaudeResult;
+  }
+  return jsonObject(stdout.trim()) ?? lines.map(jsonObject).find(Boolean);
+}
+
+/**
+ * Follows the stream's partial answer and reports its `text` as it grows. Claude Code
+ * hands the structured answer over as a tool call whose input arrives in pieces.
+ */
+export function answerStreamer(onText: (delta: string) => void): { onLine: (line: string) => void; shown: () => string } {
+  let json = '';
+  let shown = '';
+  return {
+    shown: () => shown,
+    onLine(line) {
+      const event = jsonObject(line);
+      if (event?.type !== 'stream_event') return;
+      const e = event.event as { type?: string; content_block?: { type?: string }; delta?: { type?: string; partial_json?: string } } | undefined;
+      if (e?.type === 'content_block_start' && e.content_block?.type === 'tool_use') json = '';
+      else if (e?.type === 'content_block_delta' && e.delta?.type === 'input_json_delta') {
+        json += e.delta.partial_json ?? '';
+        const text = partialStringField(json, 'text');
+        // A second try at the answer starts over: only text past what is shown counts.
+        if (text && text.length > shown.length && text.startsWith(shown)) {
+          onText(text.slice(shown.length));
+          shown = text;
+        }
+      }
+    }
+  };
 }
 
 function friendlyError(message: string): string {
@@ -95,7 +143,12 @@ function friendlyError(message: string): string {
 }
 
 export function claudeCliBackend(workDir: () => string): AiBackend {
-  async function run(req: TurnRequest, path: string, resume: boolean): Promise<{ code: number | null; result?: ClaudeResult; stderr: string; sessionId: string }> {
+  async function run(
+    req: TurnRequest,
+    path: string,
+    resume: boolean,
+    streamer: ReturnType<typeof answerStreamer>
+  ): Promise<{ code: number | null; result?: ClaudeResult; stderr: string; sessionId: string }> {
     const dir = workDir();
     await mkdir(dir, { recursive: true });
     const systemFile = join(dir, `system-${randomUUID()}.md`);
@@ -106,7 +159,8 @@ export function claudeCliBackend(workDir: () => string): AiBackend {
         stdin: cliPrompt(req.entries, req.commands, resume ? req.session?.lastSeq : 0),
         cwd: dir,
         signal: req.signal,
-        env: childEnv(path)
+        env: childEnv(path),
+        onStdout: lineSplitter(streamer.onLine)
       });
       return { code: out.code, result: parseClaudeResult(out.stdout), stderr: out.stderr, sessionId };
     } finally {
@@ -119,10 +173,11 @@ export function claudeCliBackend(workDir: () => string): AiBackend {
 
     async turn(req: TurnRequest): Promise<TurnResult> {
       const path = claudeExecutable(req.cliPath);
-      let out = await run(req, path, Boolean(req.session));
+      const streamer = answerStreamer(req.onText);
+      let out = await run(req, path, Boolean(req.session), streamer);
       // The session is gone (Claude Code's history cleared, another computer): start a
       // new one with the whole problem.
-      if (req.session && !out.result && /no conversation found/i.test(out.stderr)) out = await run(req, path, false);
+      if (req.session && !out.result && /no conversation found/i.test(out.stderr)) out = await run(req, path, false, streamer);
 
       const r = out.result;
       if (!r || r.is_error || out.code !== 0) {
@@ -132,7 +187,9 @@ export function claudeCliBackend(workDir: () => string): AiBackend {
       const answer = r.structured_output;
       const notice = answer === undefined ? 'The answer did not come back in the expected format.' : undefined;
       const text = answer === undefined ? (r.result ?? '') : answerText(answer);
-      req.onText(text);
+      // Whatever the stream has not shown yet.
+      const shown = streamer.shown();
+      if (text.startsWith(shown) && text.length > shown.length) req.onText(text.slice(shown.length));
       const u = r.usage ?? {};
       return {
         payload: { sessionId: r.session_id ?? out.sessionId, answer: answer ?? null },

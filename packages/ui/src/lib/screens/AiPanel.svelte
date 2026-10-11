@@ -263,12 +263,12 @@
   }
 
   const iconBtn =
-    'grid h-7 w-7 place-items-center rounded-full text-muted transition hover:bg-surface-inset hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus';
+    'grid h-7 w-7 place-items-center rounded-full text-muted transition hover:bg-surface-well hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus';
   const pill =
     'inline-flex items-center gap-1 rounded-full border border-default px-2.5 py-1 text-xs font-medium text-muted transition hover:border-strong hover:bg-accent hover:text-accent-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus';
 </script>
 
-<aside class="flex h-full w-full flex-col bg-surface-raised" aria-label="AI helper" data-testid="ai-panel">
+<aside class="flex h-full w-full flex-col bg-surface-panel" aria-label="AI helper" data-testid="ai-panel">
   <header class="flex items-center gap-1 border-b border-default px-3 py-2" style="padding-top: max(var(--titlebar-h), 0.5rem);">
     <span class="text-accent"><Icon name="sparkle" size={15} /></span>
     {#if view === 'list'}
@@ -276,7 +276,7 @@
     {:else if renaming && problem}
       <!-- svelte-ignore a11y_autofocus -->
       <input
-        class="min-w-0 flex-1 rounded-md bg-surface-inset px-2 py-0.5 text-sm text-fg outline-none focus-visible:ring-2 focus-visible:ring-focus"
+        class="min-w-0 flex-1 rounded-md bg-surface-well px-2 py-0.5 text-sm text-fg outline-none focus-visible:ring-2 focus-visible:ring-focus"
         bind:value={titleDraft}
         autofocus
         onblur={() => void rename()}
@@ -302,7 +302,7 @@
     <button type="button" class={iconBtn} title="New problem" aria-label="New problem" onclick={startNew}><Icon name="plus" size={15} /></button>
     <button
       type="button"
-      class="{iconBtn} {view === 'list' ? 'bg-surface-inset text-fg' : ''}"
+      class="{iconBtn} {view === 'list' ? 'bg-surface-well text-fg' : ''}"
       title="Problems on this host"
       aria-label="Problems on this host"
       aria-pressed={view === 'list'}
@@ -321,7 +321,7 @@
       {/if}
       <ul class="space-y-1">
         {#each problems as p (p.id)}
-          <li class="group flex items-center gap-1 rounded-lg hover:bg-surface-inset {problem?.id === p.id ? 'bg-surface-inset' : ''}">
+          <li class="group flex items-center gap-1 rounded-lg hover:bg-surface-well {problem?.id === p.id ? 'bg-surface-well' : ''}">
             <button type="button" class="flex min-w-0 flex-1 items-center gap-2 px-2.5 py-2 text-left" onclick={() => void open(p.id)}>
               <span class={p.status === 'solved' ? 'text-status-ok' : 'text-accent'}>
                 {#if p.status === 'solved'}<Icon name="check" size={13} />{:else}<span class="mx-1 inline-block h-1.5 w-1.5 rounded-full bg-current"></span>{/if}
@@ -352,23 +352,23 @@
         </div>
       {/if}
       {#if resumedFrom}
-        <p class="rounded-lg bg-surface-inset px-2.5 py-1.5 text-xs text-muted">
+        <p class="rounded-lg bg-surface-well px-2.5 py-1.5 text-xs text-muted">
           Continuing from {relativeDay(resumedFrom)}. The AI will be told this is a new session.
         </p>
       {/if}
 
       {#each entries as entry (entry.id)}
         {#if entry.kind === 'user'}
-          <div class="ml-8 select-text whitespace-pre-wrap break-words rounded-xl bg-surface-inset px-3 py-2 text-sm text-fg">{entry.text}</div>
+          <div class="ml-8 select-text whitespace-pre-wrap break-words rounded-xl bg-surface-well px-3 py-2 text-sm text-fg">{entry.text}</div>
         {:else if entry.kind === 'assistant'}
           <div class="space-y-2">
             {#if entry.text.trim()}
               <div class="select-text whitespace-pre-wrap break-words text-sm text-fg">
                 {#each aiTextParts(entry.text) as part, i (i)}
                   {#if part.kind === 'block'}
-                    <pre class="my-1 overflow-x-auto rounded-lg bg-surface-inset px-2.5 py-2 font-mono text-xs">{part.text}</pre>
+                    <pre class="my-1 overflow-x-auto rounded-lg bg-surface-well px-2.5 py-2 font-mono text-xs">{part.text}</pre>
                   {:else if part.kind === 'code'}
-                    <code class="rounded bg-surface-inset px-1 py-px font-mono text-xs">{part.text}</code>
+                    <code class="rounded bg-surface-well px-1 py-px font-mono text-xs">{part.text}</code>
                   {:else}{part.text}{/if}
                 {/each}
               </div>
@@ -392,6 +392,8 @@
       {#if running}
         <div class="select-text whitespace-pre-wrap break-words text-sm text-fg">
           {streamed}<span class="ml-0.5 inline-block h-3 w-1.5 animate-pulse rounded-sm bg-[var(--accent)] align-middle"></span>
+          <!-- Until the first words arrive; the Codex CLI sends its answer only when done. -->
+          {#if !streamed}<span class="ml-1.5 text-xs text-faint">Thinking…</span>{/if}
         </div>
       {/if}
       {#if pending.length > 1 && !running}
@@ -427,7 +429,7 @@
           </span>
         </div>
       {/if}
-      <div class="flex items-end gap-1.5 rounded-xl bg-surface-inset p-1.5 focus-within:ring-2 focus-within:ring-focus">
+      <div class="flex items-end gap-1.5 rounded-xl bg-surface-well p-1.5 focus-within:ring-2 focus-within:ring-focus">
         <textarea
           bind:this={input}
           bind:value={draft}
