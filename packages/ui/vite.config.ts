@@ -14,8 +14,9 @@ export default defineConfig({
       // The client-side router never needs the fallback page since the app always
       // starts at `/`, but adapter-static still wants one.
       adapter: adapter({ fallback: 'index.html' }),
-      // SvelteKit 3 drops the built-in `$lib` alias in favour of `#lib`; declaring it
-      // keeps the existing `$lib/...` imports working.
+      // SvelteKit 3 drops the built-in `$lib` alias in favour of `#lib` subpath
+      // imports; declaring it keeps the existing `$lib/...` imports working. Kit
+      // warns that `alias` is deprecated — moving to `#lib` is a separate change.
       alias: { $lib: 'src/lib' }
     })
   ],
