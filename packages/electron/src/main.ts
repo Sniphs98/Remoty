@@ -3,6 +3,7 @@ import { join } from 'node:path';
 
 import { APP_ORIGIN, registerAppProtocolHandler, registerAppScheme } from './appProtocol.js';
 import { installApplicationMenu } from './applicationMenu.js';
+import { closeAi, registerAiIpc } from './ipc/ai.js';
 import { registerAutomationsIpc } from './ipc/automations.js';
 import { registerConnectionBundlesIpc } from './ipc/connectionBundles.js';
 import { registerHostsIpc } from './ipc/hosts.js';
@@ -140,6 +141,7 @@ app.whenReady().then(async () => {
   registerRdpEmbeddedIpc(ipcMain, state);
   registerOnePasswordIpc(ipcMain);
   registerGitHubIpc(ipcMain);
+  registerAiIpc(ipcMain, state);
 
   // Pre-load the shared host config so the first `list_hosts` paints
   // immediately, before the renderer's own `reload_hosts` call. A load
@@ -163,6 +165,7 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   state.shutdown();
+  closeAi();
   cleanUpRdpOnQuit();
   closeEmbeddedRdp();
 });

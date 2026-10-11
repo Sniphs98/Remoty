@@ -52,6 +52,21 @@
   {:else if name === 'expand'}
     <polyline points="11 7 16 12 11 17" />
     <polyline points="6 7 11 12 6 17" />
+  {:else if name === 'sparkle'}
+    <path d="M12 3l1.9 5.6L19.5 10.5l-5.6 1.9L12 18l-1.9-5.6L4.5 10.5l5.6-1.9z" />
+    <path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z" />
+  {:else if name === 'list'}
+    <line x1="8" y1="6" x2="21" y2="6" />
+    <line x1="8" y1="12" x2="21" y2="12" />
+    <line x1="8" y1="18" x2="21" y2="18" />
+    <line x1="3" y1="6" x2="3.01" y2="6" />
+    <line x1="3" y1="12" x2="3.01" y2="12" />
+    <line x1="3" y1="18" x2="3.01" y2="18" />
+  {:else if name === 'send'}
+    <line x1="22" y1="2" x2="11" y2="13" />
+    <polygon points="22 2 15 22 11 13 2 9 22 2" />
+  {:else if name === 'stop'}
+    <rect x="6" y="6" width="12" height="12" rx="1" />
   {:else if name === 'check'}
     <polyline points="20 6 9 17 4 12" />
   {:else if name === 'play'}

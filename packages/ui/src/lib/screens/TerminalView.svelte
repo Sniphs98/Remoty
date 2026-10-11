@@ -30,7 +30,11 @@
   import { terminalCopyOnSelect, terminalGpu, terminalRightClick } from '$lib/stores/terminalPrefs';
   import { followGpuPref } from './terminalRenderer';
   import ContextMenu, { type ContextMenuItem } from '$lib/components/ContextMenu.svelte';
-  import { Channel, type TerminalBytes } from '$lib/bindings';
+  import { Channel, type TerminalBytes, type AiShellContextDto } from '$lib/bindings';
+  import { metrics } from '$lib/stores/metrics';
+  import { services } from '$lib/stores/services';
+  import AiPanel from './AiPanel.svelte';
+  import { runAndCapture, type CaptureResult } from './aiCapture';
 
   let { session, active }: { session: Session; active: boolean } = $props();
 
@@ -99,6 +103,10 @@
   const mac = isMacPlatform();
   function handleClipboardKey(event: KeyboardEvent): boolean {
     if (event.type !== 'keydown' || term === undefined) return true;
+    if (isAiChord(event)) {
+      toggleAi();
+      return false;
+    }
     if (isCopyChord(event, mac)) {
       if (!term.hasSelection()) return true;
       void copySelection(term).catch(() => {});
@@ -160,6 +168,61 @@
         { label: 'Paste', icon: 'upload', onSelect: pasteIntoTerm }
       ]
     };
+  }
+
+  // The AI helper beside the terminal (AiPanel). Its problems belong to the host — or, for
+  // a local tab, to the shell profile — so they come back in the next tab to the same place.
+  let aiOpen = $state(false);
+  const aiHostKey = $derived(session.localProfileId ? `local:${session.localProfileId}` : session.hostName);
+  // This terminal session, told apart from earlier ones (the AI gets a note when a
+  // problem continues in a new session).
+  // svelte-ignore state_referenced_locally
+  const aiSessionKey = `${Date.now()}-${session.id}`;
+
+  function isAiChord(event: KeyboardEvent): boolean {
+    return event.ctrlKey && event.shiftKey && !event.altKey && !event.metaKey && event.key.toLowerCase() === 'a';
+  }
+
+  function toggleAi(): void {
+    aiOpen = !aiOpen;
+    if (!aiOpen) requestAnimationFrame(() => term?.focus());
+  }
+
+  function localShellKind(profileId: string): string {
+    if (profileId === 'pwsh' || profileId === 'powershell') return 'powershell';
+    if (profileId === 'cmd') return 'cmd';
+    if (profileId === 'git-bash') return 'bash';
+    if (profileId.startsWith('wsl:')) return 'wsl';
+    return 'shell';
+  }
+
+  function aiShell(): AiShellContextDto {
+    if (session.localProfileId) return { kind: localShellKind(session.localProfileId), hostLabel: session.hostName };
+    const os = get(metrics).get(session.hostName)?.osInfo ?? undefined;
+    const found = get(services).get(session.hostName);
+    return {
+      kind: 'ssh',
+      hostLabel: session.hostName,
+      ...(os ? { os } : {}),
+      ...(found?.kind === 'detected' && found.services.length ? { services: found.services.map((x) => x.kind) } : {})
+    };
+  }
+
+  /** Types an AI-proposed command into this shell and captures its output. Focus moves
+   *  to the terminal, so a sudo password prompt can be answered right away. */
+  function aiRun(command: string, signal: AbortSignal): Promise<CaptureResult> {
+    if (!term || termId == null) return Promise.reject(new Error('The terminal is not connected.'));
+    const t = term;
+    const done = runAndCapture(t, command, { send: (line) => sendInput(ENCODER.encode(typedCommandLine(line))), signal });
+    t.focus();
+    return done;
+  }
+
+  /** Puts a command on the prompt without running it, to edit first. */
+  function aiInsert(command: string): void {
+    if (!term) return;
+    term.paste(command.replace(/\r\n?/g, '\n').replace(/\n+$/, ''));
+    term.focus();
   }
 
   let writeChain: Promise<void> = Promise.resolve();
@@ -368,7 +431,8 @@
 <!-- bg-surface fills behind the macOS traffic lights (no seam). Text selection stays
      disabled app-wide (app.css); the terminal is the one selectable surface, handled
      by xterm's own selection (not CSS). -->
-<div class="absolute inset-0 overflow-hidden bg-surface {active ? '' : 'hidden'}">
+<div class="absolute inset-0 flex overflow-hidden bg-surface {active ? '' : 'hidden'}">
+  <div class="relative h-full min-w-0 flex-1">
   <!-- Inset via this wrapper, not the xterm host: padding on the element xterm mounts
        into makes FitAddon over-size, sliding the last row under the status bar. The top
        inset clears the macOS traffic-light strip; the bottom gap clears the footer. -->
@@ -381,6 +445,19 @@
   >
     <div bind:this={container} class="h-full w-full" class:term-fade={scrolled}></div>
   </div>
+
+  {#if ready && !aiOpen}
+    <button
+      type="button"
+      class="ai-open absolute right-4 z-10 grid h-8 w-8 place-items-center rounded-full border border-default bg-surface-raised text-muted shadow-soft transition hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+      style="top: max(var(--titlebar-h), 0.75rem);"
+      title="AI helper (Ctrl+Shift+A)"
+      aria-label="Open the AI helper"
+      onclick={toggleAi}
+    >
+      <Icon name="sparkle" size={15} />
+    </button>
+  {/if}
 
   {#if !session.localProfileId && connectPhase !== 'open' && showConnecting}
     <div class="absolute inset-0 z-20 grid place-items-center bg-surface p-6" style="padding-top: var(--titlebar-h);">
@@ -426,6 +503,30 @@
           </div>
         {/if}
       </div>
+    </div>
+  {/if}
+  </div>
+
+  {#if aiOpen}
+    <!-- svelte-ignore a11y_no_static_element_interactions -- only catches the panel's toggle chord. -->
+    <div
+      class="h-full w-[min(26rem,45%)] shrink-0 border-l border-default"
+      onkeydown={(e) => {
+        if (isAiChord(e)) {
+          e.preventDefault();
+          toggleAi();
+        }
+      }}
+    >
+      <AiPanel
+        hostKey={aiHostKey}
+        hostLabel={session.hostName}
+        sessionKey={aiSessionKey}
+        shell={aiShell}
+        runCommand={aiRun}
+        insertCommand={aiInsert}
+        onClose={toggleAi}
+      />
     </div>
   {/if}
 </div>
@@ -489,6 +590,13 @@
   }
   /* Scrolled output dissolves into the top edge instead of hard-clipping (on only while
      scrolled, so the first line stays crisp). black/transparent are mask alphas. */
+  .ai-open {
+    opacity: 0.55;
+  }
+  .ai-open:hover,
+  .ai-open:focus-visible {
+    opacity: 1;
+  }
   .term-fade {
     -webkit-mask-image: linear-gradient(to bottom, transparent, black 2.25rem);
     mask-image: linear-gradient(to bottom, transparent, black 2.25rem);

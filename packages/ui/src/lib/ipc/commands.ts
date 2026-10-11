@@ -3,6 +3,14 @@
 
 import { commands, type Channel } from '$lib/bindings';
 import type {
+  AiCommandReportDto,
+  AiProblemDetailDto,
+  AiProblemDto,
+  AiProblemStatusDto,
+  AiProviderDto,
+  AiSettingsDto,
+  AiSettingsInputDto,
+  AiShellContextDto,
   SnippetDto,
   TerminalProfileDto,
   GitHubSettingsDto,
@@ -301,6 +309,22 @@ async function unwrap<T>(p: Promise<{ status: 'ok'; data: T } | { status: 'error
   return res.data;
 }
 
+export const aiSettings = (): Promise<AiSettingsDto> => unwrap(commands.aiSettings());
+export const aiSaveSettings = (input: AiSettingsInputDto): Promise<null> => unwrap(commands.aiSaveSettings(input));
+export const aiTest = (provider?: AiProviderDto): Promise<string> => unwrap(commands.aiTest(provider));
+export const aiProblems = (hostKey?: string): Promise<AiProblemDto[]> => unwrap(commands.aiProblems(hostKey));
+export const aiProblem = (id: string): Promise<AiProblemDetailDto> => unwrap(commands.aiProblem(id));
+export const aiProblemCreate = (hostKey: string, shell: AiShellContextDto): Promise<AiProblemDto> =>
+  unwrap(commands.aiProblemCreate(hostKey, shell));
+export const aiProblemUpdate = (id: string, patch: { title?: string; status?: AiProblemStatusDto }): Promise<null> =>
+  unwrap(commands.aiProblemUpdate(id, patch));
+export const aiProblemDelete = (id: string): Promise<null> => unwrap(commands.aiProblemDelete(id));
+export const aiSend = (id: string, input: { text: string; context?: string; sessionKey?: string }): Promise<null> =>
+  unwrap(commands.aiSend(id, input));
+export const aiReport = (id: string, commandId: string, report: AiCommandReportDto): Promise<null> =>
+  unwrap(commands.aiReport(id, commandId, report));
+export const aiContinue = (id: string): Promise<null> => unwrap(commands.aiContinue(id));
+export const aiCancel = (id: string): Promise<null> => unwrap(commands.aiCancel(id));
 export const githubSettings = (): Promise<GitHubSettingsDto> => unwrap(commands.githubSettings());
 export const githubSaveSettings = (input: GitHubSettingsInputDto): Promise<null> => unwrap(commands.githubSaveSettings(input));
 export const githubTest = (repo?: string): Promise<GitHubTestDto> => unwrap(commands.githubTest(repo));

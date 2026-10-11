@@ -163,6 +163,46 @@ export const commands = {
   async githubWorkflowInputs(repo: string, workflow: string, ref?: string): Promise<Result<GitHubWorkflowInputDto[], CommandError>> {
     return call('github_workflow_inputs', repo, workflow, ref);
   },
+  async aiSettings(): Promise<Result<AiSettingsDto, CommandError>> {
+    return call('ai_settings');
+  },
+  async aiSaveSettings(input: AiSettingsInputDto): Promise<Result<null, CommandError>> {
+    return call('ai_save_settings', input);
+  },
+  /** Checks the provider's key and model; resolves to the model's name. */
+  async aiTest(provider?: AiProviderDto): Promise<Result<string, CommandError>> {
+    return call('ai_test', provider);
+  },
+  /** The problems kept for a host (all hosts when omitted), most recent first. */
+  async aiProblems(hostKey?: string): Promise<Result<AiProblemDto[], CommandError>> {
+    return call('ai_problems', hostKey);
+  },
+  async aiProblem(id: string): Promise<Result<AiProblemDetailDto, CommandError>> {
+    return call('ai_problem', id);
+  },
+  async aiProblemCreate(hostKey: string, shell: AiShellContextDto): Promise<Result<AiProblemDto, CommandError>> {
+    return call('ai_problem_create', hostKey, shell);
+  },
+  async aiProblemUpdate(id: string, patch: { title?: string; status?: AiProblemStatusDto }): Promise<Result<null, CommandError>> {
+    return call('ai_problem_update', id, patch);
+  },
+  async aiProblemDelete(id: string): Promise<Result<null, CommandError>> {
+    return call('ai_problem_delete', id);
+  },
+  /** Stores the message and starts the answer, which streams as `ai-event`s. */
+  async aiSend(id: string, input: { text: string; context?: string; sessionKey?: string }): Promise<Result<null, CommandError>> {
+    return call('ai_send', id, input);
+  },
+  /** The user ran (with its captured output) or skipped a proposed command. */
+  async aiReport(id: string, commandId: string, report: AiCommandReportDto): Promise<Result<null, CommandError>> {
+    return call('ai_report', id, commandId, report);
+  },
+  async aiContinue(id: string): Promise<Result<null, CommandError>> {
+    return call('ai_continue', id);
+  },
+  async aiCancel(id: string): Promise<Result<null, CommandError>> {
+    return call('ai_cancel', id);
+  },
   async wslDistros(): Promise<Result<string[], CommandError>> {
     return call('wsl_distros');
   },
@@ -265,6 +305,7 @@ export const commands = {
 /** user-defined events **/
 
 const EVENT_CHANNELS = {
+  aiEvent: 'ai-event',
   automationStarted: 'automation-started',
   automationNodeStarted: 'automation-node-started',
   automationNodeProgress: 'automation-node-progress',
@@ -297,6 +338,7 @@ const EVENT_CHANNELS = {
 
 type EventMap = {
   automationStarted: AutomationStarted;
+  aiEvent: AiEvent;
   automationNodeStarted: AutomationNodeStarted;
   automationNodeProgress: AutomationNodeProgress;
   automationNodeResult: AutomationNodeResult;
@@ -727,6 +769,83 @@ export type UpdateInfoDto = { version: string; url: string; tag: string; canSelf
 export type UpdateDownloadProgress = { percent: number; transferred: number; total: number };
 /** The update is downloaded; `restart_to_update` installs it. */
 export type UpdateDownloaded = { version: string };
+
+/** The terminal's AI helper (docs/concepts/ai-integration.md). */
+export type AiProviderDto = 'anthropic' | 'openai';
+export type AiRiskDto = 'safe' | 'caution' | 'danger';
+export type AiProblemStatusDto = 'open' | 'solved';
+export type AiProviderSettingsDto = { hasKey: boolean; keyRef?: string | null; model?: string | null; defaultModel: string };
+export type AiSettingsDto = {
+  provider: AiProviderDto;
+  /** After a proposed command ran, its output goes to the model straight away. */
+  replyToResult: boolean;
+  maxOutputLines: number;
+  anthropic: AiProviderSettingsDto;
+  openai: AiProviderSettingsDto;
+};
+export type AiProviderSettingsInputDto = { key?: string; clearKey?: boolean; keyRef?: string; model?: string };
+export type AiSettingsInputDto = {
+  provider: AiProviderDto;
+  replyToResult: boolean;
+  maxOutputLines?: number;
+  anthropic?: AiProviderSettingsInputDto;
+  openai?: AiProviderSettingsInputDto;
+};
+/** Where a problem's commands run, told to the model once when the problem starts. */
+export type AiShellContextDto = { kind: string; hostLabel: string; os?: string; services?: string[] };
+/** One problem — a chat about one thing on one host — kept across sessions. */
+export type AiProblemDto = {
+  id: string;
+  /** The host's name, or `local:<profile id>`. */
+  hostKey: string;
+  hostLabel: string;
+  title: string;
+  status: AiProblemStatusDto;
+  lastSessionKey?: string | null;
+  inputTokens: number;
+  outputTokens: number;
+  createdAt: number;
+  updatedAt: number;
+};
+export type AiCommandOutcomeDto = {
+  commandId: string;
+  callId: string;
+  state: 'ran' | 'skipped' | 'invalid';
+  output?: string;
+  omittedLines?: number;
+  note?: string;
+};
+export type AiEntryDto = { id: string; problemId: string; seq: number; createdAt: number } & (
+  | { kind: 'user'; text: string; context?: string }
+  | { kind: 'assistant'; text: string; provider: AiProviderDto; model: string; notice?: string }
+  | { kind: 'results'; results: AiCommandOutcomeDto[] }
+);
+/** A command the model proposed: a card the user can run, edit or skip. */
+export type AiCommandDto = {
+  id: string;
+  problemId: string;
+  entryId: string;
+  callId: string;
+  command: string;
+  explanation: string;
+  risk: AiRiskDto;
+  state: 'proposed' | 'ran' | 'skipped' | 'invalid';
+  output?: string;
+  omittedLines?: number;
+  note?: string;
+  ranAt?: number;
+};
+export type AiProblemDetailDto = { problem: AiProblemDto; entries: AiEntryDto[]; commands: AiCommandDto[]; running: boolean };
+export type AiCommandReportDto = { state: 'ran' | 'skipped'; output?: string; note?: string };
+/** `ai-event`: an answer streaming in, a new entry or card state, a problem changing. */
+export type AiEvent =
+  | { type: 'turnStart'; problemId: string }
+  | { type: 'text'; problemId: string; delta: string }
+  | { type: 'entry'; problemId: string; entry: AiEntryDto; commands: AiCommandDto[] }
+  | { type: 'command'; problemId: string; command: AiCommandDto }
+  | { type: 'problem'; problem: AiProblemDto }
+  | { type: 'turnEnd'; problemId: string }
+  | { type: 'error'; problemId: string; message: string };
 
 export type Result<T, E> = { status: 'ok'; data: T } | { status: 'error'; error: E };
 

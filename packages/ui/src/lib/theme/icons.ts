@@ -32,4 +32,8 @@ export type IconName =
   | 'monitor'
   | 'clock'
   | 'branch'
-  | 'maximize';
+  | 'maximize'
+  | 'sparkle'
+  | 'list'
+  | 'send'
+  | 'stop';
