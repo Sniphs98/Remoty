@@ -17,11 +17,17 @@ type TextClipboard = Pick<typeof clipboard, 'writeText' | 'readText' | 'clear'>;
 /** For a `.rdp` file opened by whatever app handles it (macOS's Windows App, say),
  *  which can't be given a password: puts it on the clipboard to paste at the prompt,
  *  and takes it off again after `CLIPBOARD_CLEAR_MS` — unless something else has been
- *  copied since, which is left alone. */
-export function offerPasswordOnClipboard(password: string, board: TextClipboard = clipboard): void {
-  board.writeText(password);
+ *  copied since, which is left alone. Electron's clipboard reads and writes are
+ *  asynchronous (since Electron 44). */
+export async function offerPasswordOnClipboard(password: string, board: TextClipboard = clipboard): Promise<void> {
+  await board.writeText(password);
   const timer = setTimeout(() => {
-    if (board.readText() === password) board.clear();
+    void board
+      .readText()
+      .then((text) => {
+        if (text === password) board.clear();
+      })
+      .catch(() => {});
   }, CLIPBOARD_CLEAR_MS);
   timer.unref?.();
 }
@@ -125,7 +131,7 @@ export function registerRdpIpc(ipcMain: IpcMain, state: GuiState): void {
               `No app could open the .rdp file (${failure}). Install FreeRDP, or on macOS Microsoft's "Windows App".`
             );
           }
-          if (connection.password) offerPasswordOnClipboard(connection.password);
+          if (connection.password) await offerPasswordOnClipboard(connection.password);
         }
         // With a client to watch, the tunnel goes with it; otherwise it closes once idle.
         if (tunnel) result.child?.once('exit', () => tunnel.close());

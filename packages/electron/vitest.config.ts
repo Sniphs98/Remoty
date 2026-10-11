@@ -8,6 +8,8 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     environment: 'node',
+    // Downloads the Electron binary once, before the parallel workers would race to.
+    globalSetup: ['./src/testSupport/electronBinary.ts'],
     include: ['src/**/*.test.ts'],
     exclude: ['**/*.integration.test.ts', '**/node_modules/**']
   }
