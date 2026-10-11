@@ -20,7 +20,17 @@ updates:
       # the move to SvelteKit 3.
       - dependency-name: '@sveltejs/adapter-static'
         update-types: ['version-update:semver-major']
+      # SvelteKit 3 needs TypeScript 6 and adapter-static 4 as well: a migration of its
+      # own, not a dependency bump.
+      - dependency-name: '@sveltejs/kit'
+        update-types: ['version-update:semver-major']
     groups:
+      # Vite, its Svelte plugin and Vitest depend on each other's major versions (the
+      # plugin and Vitest need a matching Vite), so they only update together — one at a
+      # time fails to install.
+      vite-toolchain:
+        patterns: ['vite', 'vitest', '@vitest/*', '@sveltejs/vite-plugin-svelte']
+        update-types: [major, minor, patch]
       dev-dependencies:
         dependency-type: development
         update-types: [minor, patch]
