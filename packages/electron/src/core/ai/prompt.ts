@@ -69,3 +69,27 @@ ${where.join('\n')}`;
 /** A note added to a message when the user is back in a new terminal session. */
 export const NEW_SESSION_NOTE =
   'Note from Remoty: this message comes from a new terminal session; earlier output in this conversation is from before. Things may have changed since — check the current state before building on it.';
+
+/** The answer format of the CLI providers, which get no tools: the text, and the
+ *  commands as `propose_command` would have taken them. */
+export const CLI_ANSWER_SCHEMA = {
+  type: 'object',
+  properties: {
+    text: { type: 'string', description: 'Your answer to the user.' },
+    commands: {
+      type: 'array',
+      description: `The commands to show as cards, in order — each one what a ${PROPOSE_COMMAND} call would contain. Empty when there is nothing to run.`,
+      items: PROPOSE_COMMAND_SCHEMA
+    }
+  },
+  required: ['text', 'commands'],
+  additionalProperties: false
+} as const;
+
+/** Added to the frozen system prompt for the CLI providers. */
+export const CLI_PROMPT_ADDENDUM = `In this conversation there is no ${PROPOSE_COMMAND} tool and you have no other tools: you answer with JSON. Put your message in "text" and every command you would propose with ${PROPOSE_COMMAND} into "commands", in order — each one becomes a card as described above. The results of the commands the user ran come back in the next message.`;
+
+/** The system prompt as a CLI provider gets it. */
+export function cliSystemPrompt(system: string): string {
+  return `${system}\n\n${CLI_PROMPT_ADDENDUM}`;
+}

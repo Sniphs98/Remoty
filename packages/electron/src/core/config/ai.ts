@@ -11,13 +11,20 @@ import { decryptSecret, encryptSecret } from './secretField.js';
 
 /**
  * `ai.toml`: which AI provider the terminal's AI helper uses and how it signs in — per
- * provider, an API key kept here (encrypted the same way as host passwords) or a
- * 1Password reference read when needed; the reference wins when both are set.
+ * API provider, an API key kept here (encrypted the same way as host passwords) or a
+ * 1Password reference read when needed; the reference wins when both are set. The CLI
+ * providers sign in on their own (`claude auth login`, `codex login`); here they only
+ * have an optional path to the program.
  */
 
+export const AI_PROVIDERS: readonly AiProviderId[] = ['anthropic', 'openai', 'claude-cli', 'codex-cli'];
+
+/** Empty: the CLI's own default, which follows the user's plan. */
 export const DEFAULT_MODELS: Record<AiProviderId, string> = {
   anthropic: 'claude-opus-5-5',
-  openai: 'gpt-5.5'
+  openai: 'gpt-5.5',
+  'claude-cli': '',
+  'codex-cli': ''
 };
 
 export interface AiProviderSettings {
@@ -25,6 +32,8 @@ export interface AiProviderSettings {
   apiKeyRef?: string;
   /** Empty means `DEFAULT_MODELS[provider]`. */
   model?: string;
+  /** CLI providers: where the program is, when it is not on PATH. */
+  path?: string;
 }
 
 export interface AiSettings {
@@ -35,6 +44,8 @@ export interface AiSettings {
   maxOutputLines: number;
   anthropic: AiProviderSettings;
   openai: AiProviderSettings;
+  'claude-cli': AiProviderSettings;
+  'codex-cli': AiProviderSettings;
 }
 
 export const DEFAULT_AI_SETTINGS: AiSettings = {
@@ -42,7 +53,9 @@ export const DEFAULT_AI_SETTINGS: AiSettings = {
   replyToResult: true,
   maxOutputLines: 200,
   anthropic: {},
-  openai: {}
+  openai: {},
+  'claude-cli': {},
+  'codex-cli': {}
 };
 
 function path(): string {
@@ -56,7 +69,8 @@ function providerFrom(raw: unknown): AiProviderSettings {
   return {
     apiKey: typeof r.apiKey === 'string' ? decryptSecret(r.apiKey, cipher) : undefined,
     apiKeyRef: typeof r.apiKeyRef === 'string' && r.apiKeyRef.trim() ? r.apiKeyRef : undefined,
-    model: typeof r.model === 'string' && r.model.trim() ? r.model.trim() : undefined
+    model: typeof r.model === 'string' && r.model.trim() ? r.model.trim() : undefined,
+    path: typeof r.path === 'string' && r.path.trim() ? r.path.trim() : undefined
   };
 }
 
@@ -65,11 +79,12 @@ function providerTo(s: AiProviderSettings): Record<string, unknown> {
   if (s.apiKey) out.apiKey = encryptSecret(s.apiKey, getSecretCipher());
   if (s.apiKeyRef) out.apiKeyRef = s.apiKeyRef;
   if (s.model) out.model = s.model;
+  if (s.path) out.path = s.path;
   return out;
 }
 
 export function isAiProvider(value: unknown): value is AiProviderId {
-  return value === 'anthropic' || value === 'openai';
+  return AI_PROVIDERS.includes(value as AiProviderId);
 }
 
 export async function loadAiSettings(): Promise<AiSettings> {
@@ -81,7 +96,9 @@ export async function loadAiSettings(): Promise<AiSettings> {
     replyToResult: typeof raw.replyToResult === 'boolean' ? raw.replyToResult : DEFAULT_AI_SETTINGS.replyToResult,
     maxOutputLines: Number.isFinite(lines) && lines >= 20 ? Math.floor(lines) : DEFAULT_AI_SETTINGS.maxOutputLines,
     anthropic: providerFrom(raw.anthropic),
-    openai: providerFrom(raw.openai)
+    openai: providerFrom(raw.openai),
+    'claude-cli': providerFrom(raw['claude-cli']),
+    'codex-cli': providerFrom(raw['codex-cli'])
   };
 }
 
@@ -92,7 +109,9 @@ export async function saveAiSettings(settings: AiSettings): Promise<void> {
     replyToResult: settings.replyToResult,
     maxOutputLines: settings.maxOutputLines,
     anthropic: providerTo(settings.anthropic),
-    openai: providerTo(settings.openai)
+    openai: providerTo(settings.openai),
+    'claude-cli': providerTo(settings['claude-cli']),
+    'codex-cli': providerTo(settings['codex-cli'])
   };
   const tmp = `${path()}.tmp`;
   await writeFile(tmp, stringify(out), 'utf-8');
@@ -109,7 +128,12 @@ export function modelFor(settings: AiSettings, provider: AiProviderId = settings
   return settings[provider].model || DEFAULT_MODELS[provider];
 }
 
-const PROVIDER_NAMES: Record<AiProviderId, string> = { anthropic: 'Anthropic', openai: 'OpenAI' };
+const PROVIDER_NAMES: Record<AiProviderId, string> = {
+  anthropic: 'Anthropic',
+  openai: 'OpenAI',
+  'claude-cli': 'Claude Code',
+  'codex-cli': 'Codex'
+};
 
 /** The provider's API key, from 1Password or as stored. */
 export async function resolveAiKey(settings: AiSettings, provider: AiProviderId = settings.provider): Promise<string> {

@@ -77,3 +77,27 @@ export function shortenOutput(text: string, maxLines: number): { output: string;
     omittedLines: omitted
   };
 }
+
+/**
+ * What a CLI provider gets as its next prompt: the entries after `sinceSeq` (the ones
+ * its own conversation doesn't hold yet), as text. Without a conversation (`sinceSeq`
+ * 0) that is the whole problem; earlier answers in it are then labelled, so the model
+ * can tell who said what.
+ */
+export function cliPrompt(entries: Entry[], commands: Command[], sinceSeq = 0): string {
+  const fresh = entries.filter((e) => e.seq > sinceSeq);
+  const labelled = fresh.some((e) => e.kind === 'assistant');
+  const parts: string[] = [];
+  for (const e of fresh) {
+    if (e.kind === 'user') parts.push(labelled ? `User:\n${userText(e)}` : userText(e));
+    else if (e.kind === 'assistant') {
+      const text = foreignAssistantText(e, commands);
+      if (text) parts.push(`Assistant (earlier answer):\n${text}`);
+    } else {
+      const text = foreignResultsText(e, commands);
+      if (text) parts.push(labelled ? `Command results:\n${text}` : text);
+    }
+  }
+  const body = parts.join('\n\n');
+  return labelled ? `The conversation so far, from Remoty's records:\n\n${body}` : body;
+}

@@ -1,6 +1,7 @@
 # Konzept: AI-Hilfe im Terminal
 
-> Status: 🚧 Phase 1 umgesetzt (README → *AI integration*), Phase 2–4 offen.
+> Status: 🚧 Phase 1 und Phase 2 (Abo über Claude Code und die Codex-CLI) umgesetzt (README → *AI helper*);
+> ChatGPT-Direktlogin und Phase 3–4 offen.
 
 ## Stand der Umsetzung (Phase 1)
 
@@ -26,6 +27,34 @@ Abweichungen vom Konzept unten:
 - **Claude:** Standardmodell `claude-opus-5-5`, adaptive Thinking mit `effort: medium`, Server-Fallback bei einer
   Ablehnung (`fallbacks: "default"`), Prompt-Caching; der Verlauf wird nur angehängt, nie umgeschrieben.
 - Noch nicht drin: Zusammenfassen sehr langer Probleme, Token-Kosten in Euro, Auto-Löschen gelöster Probleme.
+
+## Stand der Umsetzung (Phase 2: Abo über die CLI)
+
+*Settings → AI → Provider Claude/OpenAI → Sign in with **Subscription*** nutzt das Claude-Pro/Max- bzw.
+ChatGPT-Abo über die CLI, die der Nutzer selbst installiert und angemeldet hat (`claude auth login`,
+`codex login`). Die Einstellungen zeigen, ob die CLI gefunden wurde (PATH plus die üblichen Installationsorte,
+oder ein eingetragener Pfad), welche Version und ob sie angemeldet ist. Code: `core/ai/claudeCli.ts`,
+`core/ai/codexCli.ts`, `core/ai/cliProcess.ts`.
+
+Abweichungen vom Konzept unten (*Weg 2*):
+
+- **Kein MCP-Server.** Statt eines `propose_command`-Werkzeugs antworten die CLIs mit **strukturierter
+  Ausgabe** nach Remotys Schema `{text, commands[]}` (`claude -p --json-schema …`, `codex exec --output-schema …`).
+  Jeder Eintrag in `commands` wird eine Befehlskarte wie ein `propose_command`-Aufruf. Die Ergebnisse gehen mit
+  der nächsten Nachricht als Text an die CLI. Das ist einfacher, braucht keinen offenen Port und funktioniert
+  mit beiden CLIs gleich.
+- **Die CLIs bekommen keinerlei eigene Werkzeuge:** Claude Code mit `--tools ""`, ohne MCP-Server, Einstellungen
+  und Slash-Befehle; Codex mit abgeschalteter Shell, Browser, Apps, Plugins und Websuche, Sandbox `read-only`,
+  ohne die `config.toml` des Nutzers. Beide laufen in einem eigenen leeren Ordner (`<Config>/ai-cli`).
+- **Sitzungen:** Pro Problem und CLI merkt sich `ai.sqlite` (Tabelle `cli_sessions`) die Sitzung (Claude Code
+  `--session-id`/`--resume`, Codex `exec resume <thread>`) und bis zu welchem Eintrag sie den Verlauf kennt.
+  Eine Folgeanfrage schickt nur, was danach kam. Ist die Sitzung weg, startet Remoty eine neue und gibt den ganzen
+  Verlauf aus SQLite mit; das gilt auch nach einem Wechsel des Anbieters.
+- **Systemprompt:** Claude Code bekommt Remotys eingefrorenen Prompt plus einen Zusatz zum Antwortformat
+  (`--system-prompt-file`). Codex hat keinen eigenen Schalter dafür, dort steht er am Anfang der ersten Nachricht.
+- **Modell:** leer = der Standard der CLI (passt zum Abo); sonst z. B. `opus`/`sonnet` bzw. ein Codex-Modell.
+- **Kein Mitstreamen:** Die Antwort erscheint als Ganzes, wenn die CLI fertig ist.
+- **ChatGPT-Direktlogin (experimentell) noch nicht gebaut:** Die Codex-CLI deckt das ChatGPT-Abo offiziell ab.
 
 
 ## Ziel
