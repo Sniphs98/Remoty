@@ -4,6 +4,7 @@ import { basename } from 'node:path';
 import { dialog, type IpcMain } from 'electron';
 
 import { loadAllHosts, loadHosts, saveHosts } from '../core/config/hosts.js';
+import { dialogDefaultPath, rememberDialogChoice } from '../core/dialogFolder.js';
 import { loadRemoteDesktopConnections, saveRemoteDesktopConnections } from '../core/config/remoteDesktop.js';
 import {
   buildRdpProfilesBundle,
@@ -70,10 +71,11 @@ function fileStem(name: string): string {
 async function saveJson(title: string, defaultName: string, filterName: string, data: unknown): Promise<string | null> {
   const { canceled, filePath } = await dialog.showSaveDialog({
     title,
-    defaultPath: defaultName,
+    defaultPath: dialogDefaultPath(defaultName),
     filters: [{ name: filterName, extensions: ['json'] }]
   });
   if (canceled || !filePath) return null;
+  rememberDialogChoice(filePath);
   await writeFile(filePath, JSON.stringify(data, null, 2), 'utf-8');
   return filePath;
 }
@@ -81,10 +83,12 @@ async function saveJson(title: string, defaultName: string, filterName: string, 
 async function openJson(title: string, filterName: string): Promise<{ raw: unknown; fileName: string } | null> {
   const { canceled, filePaths } = await dialog.showOpenDialog({
     title,
+    defaultPath: dialogDefaultPath(),
     filters: [{ name: filterName, extensions: ['json'] }],
     properties: ['openFile']
   });
   if (canceled || filePaths.length === 0) return null;
+  rememberDialogChoice(filePaths[0]);
   const content = await readFile(filePaths[0], 'utf-8');
   try {
     return { raw: JSON.parse(content), fileName: basename(filePaths[0]) };

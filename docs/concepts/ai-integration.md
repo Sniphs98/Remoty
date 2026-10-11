@@ -22,7 +22,7 @@ Abweichungen vom Konzept unten:
   müsste. Die Datenbank liegt im Speicher und wird nach jeder Änderung als Ganzes geschrieben — **als Ganzes
   verschlüsselt**, wenn der OS-Schlüsselspeicher verfügbar ist.
 - **Titel** = erste Zeile der ersten Nachricht (umbenennbar), nicht von der AI erzeugt — spart eine Anfrage.
-- **OpenAI-Paket 6.x**, weil `openai@7` Node 22 verlangt und Electron 33 Node 20 mitbringt.
+- **OpenAI-Paket 7.x**, seit Remoty auf Electron 44 (Node 24) läuft; mit Electron 33 (Node 20) ging nur 6.x.
 - **Claude:** Standardmodell `claude-opus-5-5`, adaptive Thinking mit `effort: medium`, Server-Fallback bei einer
   Ablehnung (`fallbacks: "default"`), Prompt-Caching; der Verlauf wird nur angehängt, nie umgeschrieben.
 - Noch nicht drin: Zusammenfassen sehr langer Probleme, Token-Kosten in Euro, Auto-Löschen gelöster Probleme.

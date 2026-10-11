@@ -1,5 +1,6 @@
 import { dialog, type IpcMain } from 'electron';
 import { readFile, writeFile } from 'node:fs/promises';
+import { dialogDefaultPath, rememberDialogChoice } from '../core/dialogFolder.js';
 
 import { loadSnippets, saveSnippets } from '../core/config/snippets.js';
 import { loadAutomations, saveAutomations } from '../core/config/automations.js';
@@ -177,10 +178,11 @@ export function registerAutomationsIpc(ipcMain: IpcMain, state: GuiState): void 
       const bundle = buildSnippetBundle(snippet);
       const { canceled, filePath } = await dialog.showSaveDialog({
         title: 'Export snippet',
-        defaultPath: `${sanitizeFileName(snippet.name)}.remoty-snippet.json`,
+        defaultPath: dialogDefaultPath(`${sanitizeFileName(snippet.name)}.remoty-snippet.json`),
         filters: [{ name: 'Remoty snippet', extensions: ['json'] }]
       });
       if (canceled || !filePath) return null;
+      rememberDialogChoice(filePath);
       await writeFile(filePath, JSON.stringify(bundle, null, 2), 'utf-8');
       return filePath;
     } catch (err) {
@@ -196,10 +198,11 @@ export function registerAutomationsIpc(ipcMain: IpcMain, state: GuiState): void 
       const bundle = buildAutomationBundle(automation, new Map(snippets.map((a) => [a.id, a])));
       const { canceled, filePath } = await dialog.showSaveDialog({
         title: 'Export automation',
-        defaultPath: `${sanitizeFileName(automation.name)}.remoty-automation.json`,
+        defaultPath: dialogDefaultPath(`${sanitizeFileName(automation.name)}.remoty-automation.json`),
         filters: [{ name: 'Remoty automation', extensions: ['json'] }]
       });
       if (canceled || !filePath) return null;
+      rememberDialogChoice(filePath);
       await writeFile(filePath, JSON.stringify(bundle, null, 2), 'utf-8');
       return filePath;
     } catch (err) {
@@ -214,10 +217,11 @@ export function registerAutomationsIpc(ipcMain: IpcMain, state: GuiState): void 
       const bundle = buildLibraryBundle(automations, snippets);
       const { canceled, filePath } = await dialog.showSaveDialog({
         title: 'Export all automations and snippets',
-        defaultPath: 'remoty-automations.remoty-library.json',
+        defaultPath: dialogDefaultPath('remoty-automations.remoty-library.json'),
         filters: [{ name: 'Remoty automations and snippets', extensions: ['json'] }]
       });
       if (canceled || !filePath) return null;
+      rememberDialogChoice(filePath);
       await writeFile(filePath, JSON.stringify(bundle, null, 2), 'utf-8');
       return filePath;
     } catch (err) {
@@ -229,10 +233,12 @@ export function registerAutomationsIpc(ipcMain: IpcMain, state: GuiState): void 
     try {
       const { canceled, filePaths } = await dialog.showOpenDialog({
         title: 'Import snippets or automations',
+        defaultPath: dialogDefaultPath(),
         filters: [{ name: 'Remoty snippet/automation', extensions: ['json'] }],
         properties: ['openFile']
       });
       if (canceled || filePaths.length === 0) return null;
+      rememberDialogChoice(filePaths[0]);
 
       const content = await readFile(filePaths[0], 'utf-8');
       let raw: unknown;
