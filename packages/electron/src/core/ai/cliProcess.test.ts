@@ -13,26 +13,27 @@ beforeEach(() => {
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
 describe('findExecutable', () => {
+  // The real platform: the temp directory is a real path (C:\… on Windows).
   it('finds a program on PATH', () => {
     mkdirSync(join(dir, 'bin'));
     writeFileSync(join(dir, 'bin', 'claude'), '');
-    expect(findExecutable('claude', undefined, { PATH: join(dir, 'bin'), HOME: dir }, 'linux')).toBe(join(dir, 'bin', 'claude'));
+    expect(findExecutable('claude', undefined, { PATH: join(dir, 'bin'), HOME: dir }, process.platform)).toBe(join(dir, 'bin', 'claude'));
   });
 
   it('looks in the usual install directories too', () => {
     mkdirSync(join(dir, '.local', 'bin'), { recursive: true });
     writeFileSync(join(dir, '.local', 'bin', 'claude'), '');
-    expect(findExecutable('claude', undefined, { PATH: '', HOME: dir }, 'linux')).toBe(join(dir, '.local', 'bin', 'claude'));
+    expect(findExecutable('claude', undefined, { PATH: '', HOME: dir }, process.platform)).toBe(join(dir, '.local', 'bin', 'claude'));
   });
 
   it('uses the configured path, and only that', () => {
     writeFileSync(join(dir, 'my-claude'), '');
-    expect(findExecutable('claude', join(dir, 'my-claude'), { PATH: '' }, 'linux')).toBe(join(dir, 'my-claude'));
-    expect(findExecutable('claude', join(dir, 'missing'), { PATH: '' }, 'linux')).toBeUndefined();
+    expect(findExecutable('claude', join(dir, 'my-claude'), { PATH: '' }, process.platform)).toBe(join(dir, 'my-claude'));
+    expect(findExecutable('claude', join(dir, 'missing'), { PATH: '' }, process.platform)).toBeUndefined();
   });
 
   it('is undefined when the program is nowhere', () => {
-    expect(findExecutable('codex', undefined, { PATH: dir, HOME: dir }, 'linux')).toBeUndefined();
+    expect(findExecutable('remoty-no-such-cli', undefined, { PATH: dir, HOME: dir }, process.platform)).toBeUndefined();
   });
 });
 
