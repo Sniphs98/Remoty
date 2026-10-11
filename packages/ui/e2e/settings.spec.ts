@@ -136,6 +136,8 @@ test('the footer gear opens Settings; theme, interval, and update prefs work', a
   await expect(tenSec).toHaveAttribute('aria-pressed', 'true');
 
   // Check-on-startup persists via save_update_config (seeded true → toggles false).
+  await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'Updates' }).click();
+  await expect(page.getByRole('heading', { name: 'Updates' })).toBeVisible();
   const startupSwitch = page.getByRole('switch', { name: 'Check for updates on startup' });
   await expect(startupSwitch).toHaveAttribute('aria-checked', 'true');
   await startupSwitch.click();
@@ -202,6 +204,7 @@ test('a settings toggle preserves a skipVersion the banner wrote out-of-band', a
   // Open Settings first so its config cache is seeded stale (skipVersion: '').
   await page.getByRole('button', { name: 'Settings' }).click();
   await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
+  await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'Updates' }).click();
 
   // Now Skip on the banner: it writes skipVersion='2.0.0' to the shared config.
   await page.getByRole('button', { name: 'Skip', exact: true }).click();
@@ -272,6 +275,7 @@ test('Settings → GitHub: a token (or a 1Password reference) is saved and teste
   await page.getByRole('button', { name: 'Settings' }).click();
 
   // Nothing saved yet: testing says so.
+  await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'GitHub' }).click();
   await page.getByRole('button', { name: 'Test connection' }).click();
   await expect(page.getByText('no GitHub token yet — add one in Settings → GitHub')).toBeVisible();
 
@@ -288,4 +292,23 @@ test('Settings → GitHub: a token (or a 1Password reference) is saved and teste
   await page.getByLabel('Token', { exact: true }).fill('op://Private/GitHub/token');
   await page.getByRole('button', { name: 'Save and test' }).click();
   expect(await page.evaluate(() => (window as unknown as { __github: { tokenRef: string } }).__github.tokenRef)).toBe('op://Private/GitHub/token');
+});
+
+test('Settings shows one part at a time and opens where it was left', async ({ page }) => {
+  await boot(page, { fireUpdateOnBoot: false });
+  await page.getByRole('button', { name: 'Settings' }).click();
+  const nav = page.getByRole('navigation', { name: 'Settings sections' });
+
+  // General first: the theme is there, the update switch is not.
+  await expect(nav.getByRole('button', { name: 'General' })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('button', { name: 'Light', exact: true })).toBeVisible();
+  await expect(page.getByRole('switch', { name: 'Check for updates on startup' })).toHaveCount(0);
+
+  await nav.getByRole('button', { name: 'Updates' }).click();
+  await expect(page.getByRole('switch', { name: 'Check for updates on startup' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Light', exact: true })).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Dashboard' }).first().click();
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await expect(nav.getByRole('button', { name: 'Updates' })).toHaveAttribute('aria-current', 'page');
 });

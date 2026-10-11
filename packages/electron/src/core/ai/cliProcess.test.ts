@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { fakeCli } from '../../testSupport/fakeCli';
-import { answerCalls, answerText, childEnv, findExecutable, quoteForCmd, runProcess } from './cliProcess';
+import { answerCalls, answerText, childEnv, findExecutable, lineSplitter, partialStringField, quoteForCmd, runProcess } from './cliProcess';
 
 let dir: string;
 beforeEach(() => {
@@ -60,6 +60,35 @@ describe('answerCalls / answerText', () => {
     expect(calls).toEqual([{ callId: expect.stringMatching(/^cli-/), input: answer.commands[0] }]);
     expect(answerCalls({ text: 'x' })).toEqual([]);
     expect(answerText(undefined)).toBe('');
+  });
+});
+
+describe('partialStringField', () => {
+  it('reads a string field while its JSON is still being written', () => {
+    expect(partialStringField('', 'text')).toBeUndefined();
+    expect(partialStringField('{"te', 'text')).toBeUndefined();
+    expect(partialStringField('{"text": "', 'text')).toBe('');
+    expect(partialStringField('{"text":"Check the di', 'text')).toBe('Check the di');
+    expect(partialStringField('{"text":"a \\"b\\"\\nc \\u00e4', 'text')).toBe('a "b"\nc ä');
+    // An escape cut in half waits for the rest.
+    expect(partialStringField('{"text":"line\\', 'text')).toBe('line');
+    expect(partialStringField('{"text":"x \\u00', 'text')).toBe('x ');
+    expect(partialStringField('{"text":"done","commands":[{"command":"df"', 'text')).toBe('done');
+  });
+
+  it('only takes the field at the top level', () => {
+    expect(partialStringField('{"commands":[{"text":"inner"}],"text":"outer', 'text')).toBe('outer');
+    expect(partialStringField('{"note":"text","text":"real', 'text')).toBe('real');
+  });
+});
+
+describe('lineSplitter', () => {
+  it('hands over whole lines only', () => {
+    const lines: string[] = [];
+    const feed = lineSplitter((l) => lines.push(l));
+    feed('{"a":1}\n{"b"');
+    feed(':2}\n\n');
+    expect(lines).toEqual(['{"a":1}', '{"b":2}']);
   });
 });
 

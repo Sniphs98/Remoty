@@ -16,6 +16,8 @@ export default {
       surface: 'var(--surface)',
       'surface-raised': 'var(--surface-raised)',
       'surface-inset': 'var(--surface-inset)',
+      'surface-panel': 'var(--surface-panel)',
+      'surface-well': 'var(--surface-well)',
       fg: 'var(--text)',
       muted: 'var(--text-muted)',
       faint: 'var(--text-faint)',

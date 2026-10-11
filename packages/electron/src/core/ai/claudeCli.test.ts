@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { fakeCli, setReplies } from '../../testSupport/fakeCli';
 import type { TurnRequest } from './backend';
-import { claudeArgs, claudeCliBackend, claudeCliStatus, parseClaudeResult } from './claudeCli';
+import { answerStreamer, claudeArgs, claudeCliBackend, claudeCliStatus, parseClaudeResult } from './claudeCli';
 import type { Entry } from './types';
 
 let dir: string;
@@ -79,7 +79,35 @@ describe('claudeArgs', () => {
   });
 });
 
+/** What `claude -p --output-format stream-json --include-partial-messages` prints for
+ *  an answer whose JSON arrives in `pieces`. */
+function stream(pieces: string[], extra: Record<string, unknown> = {}): string {
+  const event = (e: unknown): string => JSON.stringify({ type: 'stream_event', event: e });
+  return [
+    JSON.stringify({ type: 'system', subtype: 'init' }),
+    event({ type: 'message_start', message: {} }),
+    event({ type: 'content_block_start', index: 0, content_block: { type: 'tool_use', name: 'StructuredOutput', input: {} } }),
+    ...pieces.map((p) => event({ type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: p } })),
+    event({ type: 'content_block_stop', index: 0 }),
+    result(extra)
+  ].join('\n');
+}
+
+describe('answerStreamer', () => {
+  it('reports the answer\'s text as it grows', () => {
+    const deltas: string[] = [];
+    const s = answerStreamer((d) => deltas.push(d));
+    for (const line of stream(['{"te', 'xt":"Check', ' the di', 'sk.","comm', 'ands":[]}']).split('\n')) s.onLine(line);
+    expect(deltas).toEqual(['Check', ' the di', 'sk.']);
+    expect(s.shown()).toBe('Check the disk.');
+  });
+});
+
 describe('parseClaudeResult', () => {
+  it('finds the result event of a stream', () => {
+    expect(parseClaudeResult(stream(['{"text":"x","commands":[]}']))).toMatchObject({ type: 'result', session_id: 'sess-1' });
+  });
+
   it('finds the result among other output', () => {
     expect(parseClaudeResult(`warning: something\n${result()}\n`)).toMatchObject({ session_id: 'sess-1' });
     expect(parseClaudeResult('nothing')).toBeUndefined();
@@ -108,6 +136,14 @@ describe('claudeCliBackend', () => {
     expect(call.args).toContain('--session-id');
     // The system prompt went in a file, which is gone again.
     expect(readdirSync(join(dir, 'work'))).toEqual([]);
+  });
+
+  it('streams the text while Claude writes it', async () => {
+    setReplies(replies, { '*': [{ stdout: stream(['{"text":"Check', ' the disk.","commands":[{"command":"df -h","explanation":"disk use","risk":"safe"}]}']) }] });
+    const req = request();
+    const out = await backend().turn(req);
+    expect(req.streamed).toEqual(['Check', ' the disk.']);
+    expect(out).toMatchObject({ text: 'Check the disk.', calls: [{ input: { command: 'df -h' } }] });
   });
 
   it('sends only what is new to a resumed session', async () => {

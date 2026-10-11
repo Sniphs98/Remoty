@@ -29,6 +29,10 @@
   --status-crit: #c0392b;
   --status-off: #6e7681;
   --shadow-soft: 0 10px 30px -12px rgba(33, 33, 33, 0.18);
+  /* A side panel next to the terminal (the AI helper), and the fields, bubbles and
+     code blocks in it: on light a sunken well reads as a field. */
+  --surface-panel: var(--surface-raised);
+  --surface-well: var(--surface-inset);
 }
 
 :root[data-theme='dark'] {
@@ -51,6 +55,10 @@
   --status-crit: #f07777;
   --status-off: #7c8595;
   --shadow-soft: 0 10px 30px -12px rgba(0, 0, 0, 0.5);
+  /* On dark, depth goes the other way: the panel matches the terminal beside it and
+     its fields sit a step lighter, instead of grey around black holes. */
+  --surface-panel: var(--surface);
+  --surface-well: #2c2c2c;
 }
 
 /* Overlay title-bar inset: on macOS the window draws the traffic lights over the
