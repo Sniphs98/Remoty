@@ -1,6 +1,32 @@
 # Konzept: AI-Hilfe im Terminal
 
-> Status: 💡 Konzept, noch nicht umgesetzt (README → *AI integration*).
+> Status: 🚧 Phase 1 umgesetzt (README → *AI integration*), Phase 2–4 offen.
+
+## Stand der Umsetzung (Phase 1)
+
+Gebaut ist der Chat mit API-Key — Claude (Anthropic API) und OpenAI (Responses API):
+
+- **Settings → AI:** Anbieter, API-Key (verschlüsselt wie Host-Passwörter oder als 1Password-Referenz), Modell,
+  *„Answer right after a command ran“*, *Test connection*. Code: `packages/electron/src/core/config/ai.ts`,
+  `packages/ui/src/lib/components/AiSettings.svelte`.
+- **Chat neben dem Terminal** (✨-Knopf oben rechts oder `Ctrl+Shift+A`), Befehlskarten mit *Run / Insert / Copy / Skip*,
+  gefährliche Befehle mit zweitem Klick, Ausgabe-Mitschnitt ohne Shell-Integration (Prompt wieder da + Ruhe,
+  sonst nach 10 s Ruhe, *Done* von Hand). Code: `AiPanel.svelte`, `AiCommandCard.svelte`, `aiCapture.ts`.
+- **Probleme pro Host in `ai.sqlite`**, Liste, *New problem*, *Mark as solved*, Umbenennen, Löschen, Weitermachen in einer
+  neuen Sitzung (mit Hinweis an die AI). Code: `packages/electron/src/core/ai/` (`store.ts`, `engine.ts`).
+- **Sicherheit:** Maskierung (`mask.ts`), lokale Risiko-Regeln (`risk.ts`), die AI hat nur `propose_command`.
+
+Abweichungen vom Konzept unten:
+
+- **SQLite über sql.js** (WebAssembly) statt `better-sqlite3`: kein natives Modul, das für Electron neu gebaut werden
+  müsste. Die Datenbank liegt im Speicher und wird nach jeder Änderung als Ganzes geschrieben — **als Ganzes
+  verschlüsselt**, wenn der OS-Schlüsselspeicher verfügbar ist.
+- **Titel** = erste Zeile der ersten Nachricht (umbenennbar), nicht von der AI erzeugt — spart eine Anfrage.
+- **OpenAI-Paket 6.x**, weil `openai@7` Node 22 verlangt und Electron 33 Node 20 mitbringt.
+- **Claude:** Standardmodell `claude-opus-5-5`, adaptive Thinking mit `effort: medium`, Server-Fallback bei einer
+  Ablehnung (`fallbacks: "default"`), Prompt-Caching; der Verlauf wird nur angehängt, nie umgeschrieben.
+- Noch nicht drin: Zusammenfassen sehr langer Probleme, Token-Kosten in Euro, Auto-Löschen gelöster Probleme.
+
 
 ## Ziel
 
@@ -126,7 +152,7 @@ gehört zu einem Host (bzw. lokalen Shell-Profil), nicht zu einem Tab.
 - **✔ Als gelöst markieren:** Die AI schreibt auf Wunsch eine kurze Zusammenfassung (Ursache, Lösung, die
   entscheidenden Befehle). Gelöste Probleme bleiben durchsuchbar; daraus lässt sich ein Snippet oder eine
   Automation machen.
-- **Titel** vergibt die AI nach der ersten Nachricht automatisch, umbenennen geht per Klick.
+- **Titel** ist die erste Zeile der ersten Nachricht, umbenennen geht per Klick.
 - **Auf anderen Server übernehmen** (s. unten): ein Problem als Vorlage für dasselbe Problem auf einem
   anderen Host verwenden.
 - **Übersicht** über alle Hosts zusätzlich unter *Settings → AI → Probleme* (suchen, löschen, exportieren).
@@ -150,9 +176,11 @@ Ein Problem gehört zu **einem** Host. Oft muss man aber dasselbe auf mehreren S
 Mehr nicht: Ein Problem bleibt ein Server. Wer echtes „auf vielen Servern gleich“ braucht, macht aus dem gelösten
 Problem eine Automation (Phase 4).
 
-**Speicherung:** eine SQLite-Datei `ai.sqlite` im App-Ordner (neben `hosts.toml` usw.), über
-`better-sqlite3`. Electron 33 bringt Node 20 mit, das eingebaute `node:sqlite` gibt es dort noch nicht;
-`better-sqlite3` ist ein natives Modul wie `node-pty` und `ssh2`, die der Build schon mitbaut.
+**Speicherung:** eine SQLite-Datei `ai.sqlite` im App-Ordner (neben `hosts.toml` usw.), über **sql.js**
+(SQLite als WebAssembly). Electron 33 bringt Node 20 mit, das eingebaute `node:sqlite` gibt es dort noch nicht,
+und ein natives Modul wie `better-sqlite3` müsste für jede Electron-Version neu gebaut werden.
+Das Schema unten ist der ursprüngliche Entwurf; umgesetzt ist es in `core/ai/store.ts` (Tabellen `problems`,
+`entries`, `commands`).
 
 ```sql
 CREATE TABLE problems (
@@ -197,8 +225,8 @@ den Anbieter oder Weg wechselt (API-Key ↔ Abo, Claude ↔ ChatGPT), baut Remot
 Problemen gehen ältere Teile als Zusammenfassung mit, die letzten Schritte vollständig.
 
 Gespeichert wird nur, was ohnehin an die AI ging, also bereits **maskiert** (keine Passwörter/Tokens).
-Ausgaben und Nachrichten werden zusätzlich mit `secretCipher` verschlüsselt (wie Host-Passwörter), damit
-die Datei allein nichts preisgibt. Gelöste Probleme lassen sich automatisch nach *n* Tagen löschen (Standard: nie).
+Die ganze Datei wird zusätzlich mit `secretCipher` verschlüsselt (wie Host-Passwörter), damit
+sie allein nichts preisgibt. Gelöste Probleme lassen sich automatisch nach *n* Tagen löschen (Standard: nie).
 
 ---
 

@@ -14,6 +14,7 @@
   import { lastError } from '$lib/stores/notifications';
   import { checkUpdate, loadUpdateConfig, saveUpdateConfig } from '$lib/ipc/commands';
   import GitHubSettings from '$lib/components/GitHubSettings.svelte';
+  import AiSettings from '$lib/components/AiSettings.svelte';
 
   const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
   const formatInterval = (secs: number): string => (secs < 60 ? `${secs}s` : `${secs / 60}m`);
@@ -251,6 +252,8 @@
         </div>
       </div>
     </Surface>
+
+    <AiSettings />
 
     <GitHubSettings />
 
