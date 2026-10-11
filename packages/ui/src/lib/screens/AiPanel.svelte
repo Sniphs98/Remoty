@@ -19,6 +19,7 @@
     aiSend
   } from '$lib/ipc/commands';
   import { activeEntity } from '$lib/stores/activeEntity';
+  import { settingsSection } from '$lib/stores/settingsSection';
   import AiCommandCard from './AiCommandCard.svelte';
   import type { CaptureResult } from './aiCapture';
   import { aiTextParts, relativeDay } from './aiText';
@@ -67,6 +68,11 @@
   // Results (or a message) the AI has not answered: after a failed request, or when it
   // shouldn't answer right after a command ran.
   const canContinue = $derived(!running && !!last && last.kind !== 'assistant' && pending.length === 0);
+
+  function openAiSettings(): void {
+    settingsSection.set('ai');
+    activeEntity.selectSettings();
+  }
 
   async function scrollDown(): Promise<void> {
     await tick();
@@ -403,7 +409,7 @@
         <p class="select-text text-xs text-status-crit" role="alert">
           {error}
           {#if /Settings → AI/.test(error)}
-            <button type="button" class="ml-1 underline decoration-dotted" onclick={() => activeEntity.selectSettings()}>Open Settings</button>
+            <button type="button" class="ml-1 underline decoration-dotted" onclick={openAiSettings}>Open Settings</button>
           {/if}
         </p>
       {/if}

@@ -161,7 +161,6 @@
 </script>
 
 <Surface class="p-5">
-  <h2 class="mb-1 text-sm font-semibold">AI</h2>
   <p class="mb-4 text-xs text-muted">
     A chat next to each terminal (<span class="text-fg">Ctrl+Shift+A</span>) that proposes commands you run with one
     click; their output goes back to the AI by itself. It never runs anything on its own. Uses your own API key —

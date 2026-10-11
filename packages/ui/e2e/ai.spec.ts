@@ -229,6 +229,7 @@ test('Settings → AI: the key is saved and tested, never shown again', async ({
   });
   await page.goto('/');
   await page.getByRole('button', { name: 'Settings' }).click();
+  await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'AI', exact: true }).click();
 
   await page.getByRole('button', { name: 'Test the AI connection' }).click();
   await expect(page.getByText('no Anthropic API key yet — add one in Settings → AI')).toBeVisible();
@@ -299,6 +300,7 @@ test('Settings → AI: a subscription through Claude Code shows whether it is si
   });
   await page.goto('/');
   await page.getByRole('button', { name: 'Settings' }).click();
+  await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'AI', exact: true }).click();
 
   await page.getByRole('button', { name: 'Subscription' }).click();
   const status = page.getByTestId('ai-cli-status');

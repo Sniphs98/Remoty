@@ -280,6 +280,7 @@ test('right-click opens a Copy/Paste menu by default, and pastes directly once s
 
   // Switching the setting to "Paste" makes a right-click paste with no menu at all.
   await page.getByLabel('Settings').click();
+  await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'Terminal' }).click();
   await page.getByRole('button', { name: 'Paste', exact: true }).click();
   await page.getByRole('button', { name: 'web-1 · terminal', exact: true }).click();
 

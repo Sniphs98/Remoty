@@ -79,7 +79,6 @@
 </script>
 
 <Surface class="p-5">
-  <h2 class="mb-1 text-sm font-semibold">GitHub</h2>
   <p class="mb-4 text-xs text-muted">
     For automations that start a workflow or download a release file. A fine-grained token for the repository with
     <span class="text-fg">Actions: read and write</span> and <span class="text-fg">Contents: read</span> does it.
