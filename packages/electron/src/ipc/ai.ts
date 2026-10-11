@@ -2,11 +2,16 @@ import { join } from 'node:path';
 import type { IpcMain } from 'electron';
 
 import { anthropicBackend } from '../core/ai/anthropic.js';
+import type { AiBackend } from '../core/ai/backend.js';
+import { claudeCliBackend, claudeCliStatus } from '../core/ai/claudeCli.js';
+import type { CliStatus } from '../core/ai/cliProcess.js';
+import { codexCliBackend, codexCliStatus } from '../core/ai/codexCli.js';
 import { AiEngine, entryView, errorMessage, problemView, type EngineEvent, type EntryView, type ProblemView } from '../core/ai/engine.js';
 import { openaiBackend } from '../core/ai/openai.js';
 import { AiStore } from '../core/ai/store.js';
-import type { AiProviderId, Command, CommandReport, ProblemStatus, ShellContext } from '../core/ai/types.js';
+import { type AiProviderId, type Command, type CommandReport, isCliProvider, type ProblemStatus, type ShellContext } from '../core/ai/types.js';
 import {
+  AI_PROVIDERS,
   DEFAULT_MODELS,
   type AiSettings,
   isAiProvider,
@@ -31,7 +36,10 @@ export interface AiProviderSettingsDto {
   hasKey: boolean;
   keyRef?: string;
   model?: string;
+  /** Empty: the CLI picks. */
   defaultModel: string;
+  /** CLI providers: the configured path to the program. */
+  path?: string;
 }
 
 export interface AiSettingsDto {
@@ -40,6 +48,8 @@ export interface AiSettingsDto {
   maxOutputLines: number;
   anthropic: AiProviderSettingsDto;
   openai: AiProviderSettingsDto;
+  'claude-cli': AiProviderSettingsDto;
+  'codex-cli': AiProviderSettingsDto;
 }
 
 export interface AiProviderSettingsInputDto {
@@ -50,6 +60,8 @@ export interface AiProviderSettingsInputDto {
   keyRef?: string;
   /** '' means the default model. */
   model?: string;
+  /** CLI providers: '' means find it on PATH. */
+  path?: string;
 }
 
 export interface AiSettingsInputDto {
@@ -58,7 +70,11 @@ export interface AiSettingsInputDto {
   maxOutputLines?: number;
   anthropic?: AiProviderSettingsInputDto;
   openai?: AiProviderSettingsInputDto;
+  'claude-cli'?: AiProviderSettingsInputDto;
+  'codex-cli'?: AiProviderSettingsInputDto;
 }
+
+export type AiCliStatusDto = CliStatus;
 
 export interface AiProblemDetailDto {
   problem: ProblemView;
@@ -66,6 +82,19 @@ export interface AiProblemDetailDto {
   commands: Command[];
   running: boolean;
 }
+
+/** Where the CLIs run: an empty directory of their own, so they find no project files,
+ *  and their sessions for Remoty stay apart from the user's own. */
+function cliWorkDir(): string {
+  return join(appConfigDir(), 'ai-cli');
+}
+
+const BACKENDS: Record<AiProviderId, AiBackend> = {
+  anthropic: anthropicBackend,
+  openai: openaiBackend,
+  'claude-cli': claudeCliBackend(cliWorkDir),
+  'codex-cli': codexCliBackend(cliWorkDir)
+};
 
 let storePromise: Promise<AiStore> | undefined;
 let opened: AiStore | undefined;
@@ -91,14 +120,17 @@ function settingsDto(s: AiSettings): AiSettingsDto {
     hasKey: Boolean(s[id].apiKey),
     keyRef: s[id].apiKeyRef,
     model: s[id].model,
-    defaultModel: DEFAULT_MODELS[id]
+    defaultModel: DEFAULT_MODELS[id],
+    ...(s[id].path ? { path: s[id].path } : {})
   });
   return {
     provider: s.provider,
     replyToResult: s.replyToResult,
     maxOutputLines: s.maxOutputLines,
     anthropic: provider('anthropic'),
-    openai: provider('openai')
+    openai: provider('openai'),
+    'claude-cli': provider('claude-cli'),
+    'codex-cli': provider('codex-cli')
   };
 }
 
@@ -109,7 +141,8 @@ function applyProvider(current: AiSettings[AiProviderId], input: AiProviderSetti
   return {
     apiKey: input.clearKey ? undefined : input.key?.trim() || current.apiKey,
     apiKeyRef: keyRef,
-    model: input.model === undefined ? current.model : input.model.trim() || undefined
+    model: input.model === undefined ? current.model : input.model.trim() || undefined,
+    path: input.path === undefined ? current.path : input.path.trim() || undefined
   };
 }
 
@@ -132,7 +165,7 @@ export function registerAiIpc(ipcMain: IpcMain, state: GuiState): void {
       store: s,
       settings: loadAiSettings,
       apiKey: resolveAiKey,
-      backends: { anthropic: anthropicBackend, openai: openaiBackend },
+      backends: BACKENDS,
       secretsFor: (hostKey) => {
         const password = state.hostByName(hostKey)?.password;
         return password ? [password] : [];
@@ -153,26 +186,37 @@ export function registerAiIpc(ipcMain: IpcMain, state: GuiState): void {
         provider: isAiProvider(input.provider) ? input.provider : current.provider,
         replyToResult: Boolean(input.replyToResult),
         maxOutputLines: Number.isFinite(lines) && lines >= 20 ? Math.floor(lines) : current.maxOutputLines,
-        anthropic: applyProvider(current.anthropic, input.anthropic),
-        openai: applyProvider(current.openai, input.openai)
+        ...(Object.fromEntries(AI_PROVIDERS.map((id) => [id, applyProvider(current[id], input[id])])) as Pick<AiSettings, AiProviderId>)
       });
     })
   );
 
-  // Checks the key against the provider and that the model exists; returns the model.
+  // Checks the key against the provider and that the model exists (for a CLI: that it
+  // is installed and signed in); returns the model.
   ipcMain.handle(
     'ai_test',
     handle(async (provider?: AiProviderId) => {
       const settings = await loadAiSettings();
       const id = isAiProvider(provider) ? provider : settings.provider;
       const model = modelFor(settings, id);
-      const backend = id === 'anthropic' ? anthropicBackend : openaiBackend;
       try {
-        await backend.check(await resolveAiKey(settings, id), model);
+        if (isCliProvider(id)) await BACKENDS[id].check('', model, settings[id].path);
+        else await BACKENDS[id].check(await resolveAiKey(settings, id), model);
       } catch (err) {
         throw new Error(errorMessage(err));
       }
-      return model;
+      return model || 'the CLI\'s default model';
+    })
+  );
+
+  // Whether a CLI provider is installed and signed in, without asking a model anything.
+  ipcMain.handle(
+    'ai_cli_status',
+    handle(async (provider: AiProviderId): Promise<AiCliStatusDto> => {
+      const settings = await loadAiSettings();
+      if (provider === 'claude-cli') return claudeCliStatus(settings['claude-cli'].path);
+      if (provider === 'codex-cli') return codexCliStatus(settings['codex-cli'].path);
+      throw new Error('not a CLI provider');
     })
   );
 

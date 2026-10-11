@@ -169,9 +169,14 @@ export const commands = {
   async aiSaveSettings(input: AiSettingsInputDto): Promise<Result<null, CommandError>> {
     return call('ai_save_settings', input);
   },
-  /** Checks the provider's key and model; resolves to the model's name. */
+  /** Checks the provider's key and model (a CLI: that it is signed in); resolves to the
+   *  model's name. */
   async aiTest(provider?: AiProviderDto): Promise<Result<string, CommandError>> {
     return call('ai_test', provider);
+  },
+  /** Whether Claude Code or the Codex CLI is installed and signed in. */
+  async aiCliStatus(provider: AiCliProviderDto): Promise<Result<AiCliStatusDto, CommandError>> {
+    return call('ai_cli_status', provider);
   },
   /** The problems kept for a host (all hosts when omitted), most recent first. */
   async aiProblems(hostKey?: string): Promise<Result<AiProblemDto[], CommandError>> {
@@ -771,10 +776,15 @@ export type UpdateDownloadProgress = { percent: number; transferred: number; tot
 export type UpdateDownloaded = { version: string };
 
 /** The terminal's AI helper (docs/concepts/ai-integration.md). */
-export type AiProviderDto = 'anthropic' | 'openai';
+/** `claude-cli`/`codex-cli`: the user's Claude or ChatGPT subscription, through the
+ *  Claude Code or Codex CLI they installed and signed in to. */
+export type AiProviderDto = 'anthropic' | 'openai' | 'claude-cli' | 'codex-cli';
+export type AiCliProviderDto = 'claude-cli' | 'codex-cli';
+export type AiCliStatusDto = { installed: boolean; path?: string; version?: string; loggedIn: boolean; detail?: string };
 export type AiRiskDto = 'safe' | 'caution' | 'danger';
 export type AiProblemStatusDto = 'open' | 'solved';
-export type AiProviderSettingsDto = { hasKey: boolean; keyRef?: string | null; model?: string | null; defaultModel: string };
+/** `defaultModel` empty: the CLI picks. `path`: where a CLI was configured to be. */
+export type AiProviderSettingsDto = { hasKey: boolean; keyRef?: string | null; model?: string | null; defaultModel: string; path?: string | null };
 export type AiSettingsDto = {
   provider: AiProviderDto;
   /** After a proposed command ran, its output goes to the model straight away. */
@@ -782,14 +792,18 @@ export type AiSettingsDto = {
   maxOutputLines: number;
   anthropic: AiProviderSettingsDto;
   openai: AiProviderSettingsDto;
+  'claude-cli': AiProviderSettingsDto;
+  'codex-cli': AiProviderSettingsDto;
 };
-export type AiProviderSettingsInputDto = { key?: string; clearKey?: boolean; keyRef?: string; model?: string };
+export type AiProviderSettingsInputDto = { key?: string; clearKey?: boolean; keyRef?: string; model?: string; path?: string };
 export type AiSettingsInputDto = {
   provider: AiProviderDto;
   replyToResult: boolean;
   maxOutputLines?: number;
   anthropic?: AiProviderSettingsInputDto;
   openai?: AiProviderSettingsInputDto;
+  'claude-cli'?: AiProviderSettingsInputDto;
+  'codex-cli'?: AiProviderSettingsInputDto;
 };
 /** Where a problem's commands run, told to the model once when the problem starts. */
 export type AiShellContextDto = { kind: string; hostLabel: string; os?: string; services?: string[] };

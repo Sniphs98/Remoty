@@ -8,7 +8,7 @@ import { maskSecrets } from './mask.js';
 import { NEW_SESSION_NOTE, systemPrompt } from './prompt.js';
 import { isRisk, localRisk, maxRisk } from './risk.js';
 import type { AiStore } from './store.js';
-import type { AiProviderId, Command, CommandOutcome, CommandReport, Entry, Problem, ShellContext } from './types.js';
+import { type AiProviderId, type Command, type CommandOutcome, type CommandReport, type Entry, isCliProvider, type Problem, type ShellContext } from './types.js';
 
 /**
  * Runs the AI helper's conversations: stores what the user writes, asks the provider,
@@ -217,8 +217,10 @@ export class AiEngine {
       const settings = await this.deps.settings();
       const provider = settings.provider;
       const model = modelFor(settings, provider);
-      const apiKey = await this.deps.apiKey(settings, provider);
+      const cli = isCliProvider(provider);
+      const apiKey = cli ? '' : await this.deps.apiKey(settings, provider);
       const problem = this.requireProblem(problemId);
+      const session = cli ? store.cliSession(problemId, provider) : undefined;
       const result = await this.deps.backends[provider].turn({
         apiKey,
         model,
@@ -226,17 +228,20 @@ export class AiEngine {
         entries: store.entries(problemId),
         commands: store.commands(problemId),
         signal: controller.signal,
-        onText: (delta) => this.deps.emit({ type: 'text', problemId, delta })
+        onText: (delta) => this.deps.emit({ type: 'text', problemId, delta }),
+        ...(cli ? { cliPath: settings[provider].path, ...(session ? { session } : {}) } : {})
       });
       store.addUsage(problemId, result.usage.input, result.usage.output);
       const entry = store.appendEntry(problemId, {
         kind: 'assistant',
         text: result.text,
         provider,
-        model,
+        model: result.model || model || 'default',
         payload: result.payload,
         ...(result.notice ? { notice: result.notice } : {})
       });
+      // The CLI's conversation now holds everything up to this answer.
+      if (cli && result.sessionId) store.setCliSession(problemId, provider, { id: result.sessionId, lastSeq: entry.seq });
       for (const call of result.calls) {
         const input = call.input as { command?: unknown; explanation?: unknown; risk?: unknown } | undefined;
         const command = typeof input?.command === 'string' ? input.command.trim() : '';

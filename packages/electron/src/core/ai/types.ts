@@ -6,7 +6,15 @@
  * commands the model proposed. Nothing here talks to a provider; see `engine.ts`.
  */
 
-export type AiProviderId = 'anthropic' | 'openai';
+/** `anthropic`/`openai` use an API key; `claude-cli`/`codex-cli` run the Claude Code or
+ *  Codex CLI the user installed and signed in to with their subscription. */
+export type AiProviderId = 'anthropic' | 'openai' | 'claude-cli' | 'codex-cli';
+
+export type CliProviderId = Extract<AiProviderId, 'claude-cli' | 'codex-cli'>;
+
+export function isCliProvider(id: AiProviderId): id is CliProviderId {
+  return id === 'claude-cli' || id === 'codex-cli';
+}
 
 /** How careful the user should be with a proposed command. The model gives one, the
  *  local rules in `risk.ts` give one, and the card shows the higher of the two. */

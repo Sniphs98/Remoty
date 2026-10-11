@@ -243,7 +243,79 @@ test('Settings → AI: the key is saved and tested, never shown again', async ({
       provider: 'anthropic',
       replyToResult: true,
       anthropic: { key: 'sk-ant-secret', keyRef: '', model: '' },
-      openai: { keyRef: '', model: '' }
+      openai: { keyRef: '', model: '' },
+      'claude-cli': { model: '', path: '' },
+      'codex-cli': { model: '', path: '' }
     }
   ]);
+});
+
+test('Settings → AI: a subscription through Claude Code shows whether it is signed in', async ({ page }) => {
+  await page.addInitScript(() => {
+    const win = window as unknown as Record<string, unknown>;
+    const saved: unknown[] = [];
+    win.__aiSaved = saved;
+    let checks = 0;
+    const provider = (defaultModel: string) => ({ hasKey: false, defaultModel });
+    win.remoty = {
+      invoke: (channel: string, ...args: unknown[]) => {
+        switch (channel) {
+          case 'list_hosts':
+            return Promise.resolve([]);
+          case 'ai_settings':
+            return Promise.resolve({
+              provider: 'anthropic',
+              replyToResult: true,
+              maxOutputLines: 200,
+              anthropic: provider('claude-opus-5-5'),
+              openai: provider('gpt-5.5'),
+              'claude-cli': provider(''),
+              'codex-cli': provider('')
+            });
+          case 'ai_cli_status':
+            checks += 1;
+            return Promise.resolve({
+              installed: true,
+              path: '/usr/local/bin/claude',
+              version: '2.1.296 (Claude Code)',
+              loggedIn: checks > 1,
+              detail: checks > 1 ? 'signed in (claude.ai)' : 'not signed in'
+            });
+          case 'ai_save_settings':
+            saved.push(args[0]);
+            return Promise.resolve(null);
+          case 'ai_test':
+            return Promise.resolve('');
+          default:
+            return Promise.resolve(null);
+        }
+      },
+      on: () => () => {},
+      settings: { get: () => Promise.resolve(undefined), set: () => Promise.resolve() },
+      openExternal: () => Promise.resolve(),
+      homeDir: () => Promise.resolve('/home/user'),
+      getPathForFile: () => ''
+    };
+  });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Settings' }).click();
+
+  await page.getByRole('button', { name: 'Subscription' }).click();
+  const status = page.getByTestId('ai-cli-status');
+  await expect(status).toContainText('installed but not signed in');
+  await expect(status).toContainText('claude auth login');
+  await expect(page.getByLabel('Claude API key', { exact: true })).toHaveCount(0);
+
+  await status.getByRole('button', { name: 'Check again' }).click();
+  await expect(status).toContainText('2.1.296 (Claude Code) — signed in (claude.ai)');
+  await expect(page.getByLabel('Program')).toHaveAttribute('placeholder', '/usr/local/bin/claude');
+
+  await page.getByRole('button', { name: 'Save AI settings and test' }).click();
+  await expect(page.getByText('Ready — Claude Code is signed in.')).toBeVisible();
+  const [input] = (await page.evaluate(() => (window as unknown as { __aiSaved: unknown[] }).__aiSaved)) as { provider: string }[];
+  expect(input.provider).toBe('claude-cli');
+
+  // OpenAI with a subscription is the Codex CLI.
+  await page.getByRole('button', { name: 'OpenAI' }).click();
+  await expect(status).toContainText('ChatGPT plan through the Codex CLI');
 });

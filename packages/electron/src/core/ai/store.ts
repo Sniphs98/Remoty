@@ -4,7 +4,8 @@ import { dirname } from 'node:path';
 import initSqlJs, { type Database, type SqlValue } from 'sql.js';
 
 import type { SecretCipher } from '../config/secretCipher.js';
-import type { Command, Entry, EntryBody, Problem } from './types.js';
+import type { CliSession } from './backend.js';
+import type { CliProviderId, Command, Entry, EntryBody, Problem } from './types.js';
 
 /**
  * `ai.sqlite`: the AI helper's problems, their transcripts and the commands proposed in
@@ -57,6 +58,13 @@ CREATE TABLE IF NOT EXISTS commands (
   ran_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS commands_by_entry ON commands(entry_id);
+CREATE TABLE IF NOT EXISTS cli_sessions (
+  problem_id TEXT NOT NULL REFERENCES problems(id) ON DELETE CASCADE,
+  provider TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  last_seq INTEGER NOT NULL,
+  PRIMARY KEY (problem_id, provider)
+);
 `;
 
 type Row = Record<string, SqlValue>;
@@ -342,5 +350,22 @@ export class AiStore {
       patch.ranAt ?? null,
       id
     ]);
+  }
+
+  // ── CLI sessions ────────────────────────────────────────────────────────────
+
+  /** The CLI's own conversation for a problem: Claude Code's session or Codex's
+   *  thread, and the last entry it holds. */
+  cliSession(problemId: string, provider: CliProviderId): CliSession | undefined {
+    const [row] = this.all('SELECT session_id, last_seq FROM cli_sessions WHERE problem_id = ? AND provider = ?', [problemId, provider]);
+    return row ? { id: str(row.session_id), lastSeq: Number(row.last_seq) } : undefined;
+  }
+
+  setCliSession(problemId: string, provider: CliProviderId, session: CliSession): void {
+    this.run(
+      `INSERT INTO cli_sessions (problem_id, provider, session_id, last_seq) VALUES (?, ?, ?, ?)
+       ON CONFLICT(problem_id, provider) DO UPDATE SET session_id = excluded.session_id, last_seq = excluded.last_seq`,
+      [problemId, provider, session.id, session.lastSeq]
+    );
   }
 }

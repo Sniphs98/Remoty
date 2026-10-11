@@ -9,7 +9,9 @@ import { anthropicMessages } from './anthropic';
 import type { AiBackend, TurnRequest, TurnResult } from './backend';
 import { AiEngine, type EngineEvent, titleFrom } from './engine';
 import { openaiInput } from './openai';
+import { cliPrompt } from './history';
 import { AiStore } from './store';
+import type { AiProviderId } from './types';
 
 const plain: SecretCipher = {
   available: false,
@@ -22,7 +24,7 @@ const plain: SecretCipher = {
 };
 
 /** A backend that answers from a script and remembers what it was asked. */
-function scripted(id: 'anthropic' | 'openai', answers: ((req: TurnRequest) => TurnResult)[]): AiBackend & { requests: TurnRequest[] } {
+function scripted(id: AiProviderId, answers: ((req: TurnRequest) => TurnResult)[]): AiBackend & { requests: TurnRequest[] } {
   const requests: TurnRequest[] = [];
   return {
     id,
@@ -60,12 +62,12 @@ async function settle(): Promise<void> {
   for (let i = 0; i < 20; i++) await new Promise((r) => setTimeout(r, 0));
 }
 
-function engineWith(backend: AiBackend): AiEngine {
+function engineWith(backend: AiBackend, apiKey: () => Promise<string> = async () => 'key'): AiEngine {
   return new AiEngine({
     store,
     settings: async () => settings,
-    apiKey: async () => 'key',
-    backends: { anthropic: backend, openai: backend },
+    apiKey,
+    backends: { anthropic: backend, openai: backend, 'claude-cli': backend, 'codex-cli': backend },
     secretsFor: () => ['hunter2hunter2'],
     emit: (e) => events.push(e)
   });
@@ -187,6 +189,59 @@ describe('AiEngine', () => {
       { role: 'assistant', content: 'Let us look.\n[proposed command: uptime]' },
       { role: 'user', content: expect.stringContaining('load average: 0.1') }
     ]);
+  });
+});
+
+describe('AiEngine with a CLI provider', () => {
+  function cliAnswer(sessionId: string, commands: string[] = []): () => TurnResult {
+    return () => ({
+      payload: { sessionId },
+      text: 'ok',
+      calls: commands.map((command, i) => ({ callId: `cli-${i}`, input: { command, explanation: 'why', risk: 'safe' } })),
+      usage: { input: 10, output: 2 },
+      sessionId,
+      model: 'claude-opus-5-5'
+    });
+  }
+
+  it('keeps the CLI\'s session and sends only what is new', async () => {
+    settings.provider = 'claude-cli';
+    settings['claude-cli'].path = '/opt/claude';
+    const backend = scripted('claude-cli', [cliAnswer('s1', ['df -h']), cliAnswer('s1')]);
+    const engine = engineWith(backend, async () => {
+      throw new Error('no key needed');
+    });
+    const p = engine.createProblem('web-1', { kind: 'ssh', hostLabel: 'web-1' });
+    engine.send(p.id, { text: 'disk?' });
+    await settle();
+    expect(backend.requests[0]).toMatchObject({ apiKey: '', cliPath: '/opt/claude' });
+    expect(backend.requests[0].session).toBeUndefined();
+    const [assistant] = store.entries(p.id).filter((e) => e.kind === 'assistant');
+    expect(assistant).toMatchObject({ provider: 'claude-cli', model: 'claude-opus-5-5' });
+    expect(store.cliSession(p.id, 'claude-cli')).toEqual({ id: 's1', lastSeq: assistant.seq });
+
+    await engine.report(p.id, store.commands(p.id)[0].id, { state: 'ran', output: '/dev/sda1 91%' });
+    await settle();
+    const second = backend.requests[1];
+    expect(second.session).toEqual({ id: 's1', lastSeq: assistant.seq });
+    expect(cliPrompt(second.entries, second.commands, second.session?.lastSeq)).toBe('Result of `df -h`:\nTerminal output:\n/dev/sda1 91%');
+  });
+
+  it('gives a CLI the whole problem, labelled, after another provider answered', async () => {
+    const backend = scripted('anthropic', [toolAnswer([{ id: 't1', command: 'uptime' }]), cliAnswer('s9')]);
+    const engine = engineWith(backend);
+    const p = engine.createProblem('web-1', { kind: 'ssh', hostLabel: 'web-1' });
+    engine.send(p.id, { text: 'load?' });
+    await settle();
+    settings.provider = 'codex-cli';
+    await engine.report(p.id, store.commands(p.id)[0].id, { state: 'ran', output: 'load average: 0.1' });
+    await settle();
+    const req = backend.requests[1];
+    expect(req.session).toBeUndefined();
+    expect(cliPrompt(req.entries, req.commands)).toBe(
+      "The conversation so far, from Remoty's records:\n\nUser:\nload?\n\nAssistant (earlier answer):\nLet us look.\n[proposed command: uptime]\n\nCommand results:\nResult of `uptime`:\nTerminal output:\nload average: 0.1"
+    );
+    expect(store.cliSession(p.id, 'codex-cli')?.id).toBe('s9');
   });
 });
 
