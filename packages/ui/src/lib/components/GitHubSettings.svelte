@@ -5,7 +5,7 @@
   // that is and, given a repository, whether it can see it. The token never comes back
   // from the app — only whether one is stored.
   import { onMount } from 'svelte';
-  import { Surface, Icon } from '$lib/theme';
+  import { Icon } from '$lib/theme';
   import OnePasswordToggle from './OnePasswordToggle.svelte';
   import OnePasswordCliHint from './OnePasswordCliHint.svelte';
   import { githubSaveSettings, githubSettings, githubTest } from '$lib/ipc/commands';
@@ -78,8 +78,8 @@
     'inline-flex shrink-0 items-center gap-1.5 rounded-full border border-strong px-4 py-1.5 text-sm text-fg transition hover:bg-accent hover:text-accent-fg disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus';
 </script>
 
-<Surface class="p-5">
-  <p class="mb-4 text-xs text-muted">
+<div>
+  <p class="mb-5 text-xs text-muted">
     For automations that start a workflow or download a release file. A fine-grained token for the repository with
     <span class="text-fg">Actions: read and write</span> and <span class="text-fg">Contents: read</span> does it.
     <button type="button" class="underline decoration-dotted hover:text-fg" onclick={() => void openExternal(TOKEN_HELP)}>Create one</button>
@@ -87,7 +87,7 @@
 
   <div class="space-y-3">
     <div class="block space-y-1 text-xs font-medium text-muted">
-      <div class="flex items-center justify-between gap-2">
+      <div class="flex items-center gap-3">
         <label for="github-token">Token</label>
         <OnePasswordToggle bind:on={from1P} field="Token" />
       </div>
@@ -137,4 +137,4 @@
       <p class="text-xs text-status-crit">{status.text}</p>
     {/if}
   </div>
-</Surface>
+</div>
