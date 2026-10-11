@@ -4,11 +4,12 @@ vi.mock('electron', () => ({ clipboard: {}, screen: {}, shell: {} }));
 
 const { CLIPBOARD_CLEAR_MS, launchNotice, offerPasswordOnClipboard } = await import('./rdp.js');
 
-function fakeClipboard(): { writeText: (t: string) => void; readText: () => string; clear: () => void; text: string } {
+/** Asynchronous like Electron's own clipboard. */
+function fakeClipboard(): { writeText: (t: string) => Promise<void>; readText: () => Promise<string>; clear: () => void; text: string } {
   const board = {
     text: '',
-    writeText: (t: string) => void (board.text = t),
-    readText: () => board.text,
+    writeText: async (t: string) => void (board.text = t),
+    readText: async () => board.text,
     clear: () => void (board.text = '')
   };
   return board;
@@ -19,21 +20,21 @@ describe('offerPasswordOnClipboard', () => {
     vi.useRealTimers();
   });
 
-  it('puts the password on the clipboard and takes it off again', () => {
+  it('puts the password on the clipboard and takes it off again', async () => {
     vi.useFakeTimers();
     const board = fakeClipboard();
-    offerPasswordOnClipboard('secret', board);
+    await offerPasswordOnClipboard('secret', board);
     expect(board.text).toBe('secret');
-    vi.advanceTimersByTime(CLIPBOARD_CLEAR_MS);
+    await vi.advanceTimersByTimeAsync(CLIPBOARD_CLEAR_MS);
     expect(board.text).toBe('');
   });
 
-  it('leaves the clipboard alone if something else was copied since', () => {
+  it('leaves the clipboard alone if something else was copied since', async () => {
     vi.useFakeTimers();
     const board = fakeClipboard();
-    offerPasswordOnClipboard('secret', board);
-    board.writeText('something the user copied');
-    vi.advanceTimersByTime(CLIPBOARD_CLEAR_MS);
+    await offerPasswordOnClipboard('secret', board);
+    await board.writeText('something the user copied');
+    await vi.advanceTimersByTimeAsync(CLIPBOARD_CLEAR_MS);
     expect(board.text).toBe('something the user copied');
   });
 });
