@@ -17,13 +17,12 @@
     "package:dir": "npm run build && electron-builder --dir"
   },
   "devDependencies": {
-    "electron-builder": "^25.1.8"
+    "electron-builder": "^26.15.3"
   },
   "overrides": {
     "dompurify": "^3.4.13"
   },
   "allowScripts": {
-    "electron@33.4.11": true,
     "esbuild@0.21.5": true,
     "ssh2@1.17.0": true,
     "cpu-features@0.0.10": true,

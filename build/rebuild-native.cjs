@@ -10,18 +10,28 @@
 // binding) is still rebuilt for Electron as before.
 const fs = require('node:fs');
 const path = require('node:path');
-const { rebuild } = require('@electron/rebuild');
-const { getProjectRootPath } = require('@electron/rebuild/lib/search-module');
 const { Arch } = require('builder-util');
 
+/** The workspace root: the nearest folder at or above `dir` with a lockfile, which is
+ *  what @electron/rebuild needs to find hoisted modules. (Its own helper for this is no
+ *  longer exported since @electron/rebuild 4.) */
+function projectRootPath(dir) {
+  for (let current = path.resolve(dir); ; current = path.dirname(current)) {
+    if (['package-lock.json', 'yarn.lock', 'pnpm-lock.yaml'].some((f) => fs.existsSync(path.join(current, f)))) return current;
+    if (path.dirname(current) === current) return path.resolve(dir);
+  }
+}
+
 exports.default = async function beforePack(context) {
+  // @electron/rebuild 4 is an ES module: loaded with import(), not require().
+  const { rebuild } = await import('@electron/rebuild');
   const appDir = context.packager.info.appDir;
   await rebuild({
     buildPath: appDir,
     electronVersion: context.packager.info.framework.version,
     arch: Arch[context.arch],
     platform: context.electronPlatformName,
-    projectRootPath: await getProjectRootPath(appDir),
+    projectRootPath: projectRootPath(appDir),
     mode: 'sequential',
     disablePreGypCopy: true,
     ignoreModules: ['node-pty']
