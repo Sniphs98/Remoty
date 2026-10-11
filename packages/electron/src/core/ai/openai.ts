@@ -44,19 +44,21 @@ function replayable(items: ResponseOutputItem[]): ResponseInputItem[] {
   return out;
 }
 
-export function openaiInput(req: Pick<TurnRequest, 'entries' | 'commands'>): ResponseInputItem[] {
+/** The problem as Responses API input. `native` is the provider whose earlier output is
+ *  replayed as is (reasoning included); another provider's turns become text. */
+export function openaiInput(req: Pick<TurnRequest, 'entries' | 'commands'>, native: 'openai' | 'chatgpt' = 'openai'): ResponseInputItem[] {
   const input: ResponseInputItem[] = [];
   const answered = answeredBy(req.entries);
   for (const e of req.entries) {
     if (e.kind === 'user') {
       input.push({ role: 'user', content: userText(e) });
     } else if (e.kind === 'assistant') {
-      if (isNative(e, 'openai')) input.push(...(e.payload as ResponseInputItem[]));
+      if (isNative(e, native)) input.push(...(e.payload as ResponseInputItem[]));
       else {
         const text = foreignAssistantText(e, req.commands);
         if (text) input.push({ role: 'assistant', content: text });
       }
-    } else if (isNative(answered.get(e.id), 'openai')) {
+    } else if (isNative(answered.get(e.id), native)) {
       for (const r of e.results) input.push({ type: 'function_call_output', call_id: r.callId, output: outcomeText(r) });
     } else {
       const text = foreignResultsText(e, req.commands);
@@ -66,54 +68,57 @@ export function openaiInput(req: Pick<TurnRequest, 'entries' | 'commands'>): Res
   return input;
 }
 
+/** One streamed, stateless Responses API turn with `client` — an API key's, or the
+ *  ChatGPT sign-in's (`chatgpt.ts`). */
+export async function openaiTurn(client: OpenAI, req: TurnRequest, native: 'openai' | 'chatgpt' = 'openai'): Promise<TurnResult> {
+  const stream = client.responses.stream(
+    {
+      model: req.model,
+      instructions: req.system,
+      input: openaiInput(req, native),
+      tools: [TOOL],
+      store: false,
+      include: ['reasoning.encrypted_content']
+    },
+    { signal: req.signal }
+  );
+  stream.on('response.output_text.delta', (event) => req.onText(event.delta));
+  const response = await stream.finalResponse();
+
+  const calls: ProposedCall[] = [];
+  for (const item of response.output) {
+    if (item.type !== 'function_call') continue;
+    let input: unknown;
+    try {
+      input = item.name === PROPOSE_COMMAND ? JSON.parse(item.arguments) : undefined;
+    } catch {
+      input = undefined;
+    }
+    calls.push({ callId: item.call_id, input });
+  }
+  const reason = response.incomplete_details?.reason;
+  const notice =
+    response.status === 'incomplete'
+      ? reason === 'content_filter'
+        ? 'The model declined to answer this.'
+        : 'The answer was cut off at the output limit.'
+      : undefined;
+  // An answer cut off midway may have cut a call off too: none are shown or kept then,
+  // since each kept call needs an answer on the next request.
+  const kept = notice ? response.output.filter((item) => item.type !== 'function_call') : response.output;
+  return {
+    payload: replayable(kept),
+    text: response.output_text ?? '',
+    calls: notice ? [] : calls,
+    notice,
+    usage: { input: response.usage?.input_tokens ?? 0, output: response.usage?.output_tokens ?? 0 }
+  };
+}
+
 export const openaiBackend: AiBackend = {
   id: 'openai',
 
-  async turn(req: TurnRequest): Promise<TurnResult> {
-    const client = new OpenAI({ apiKey: req.apiKey });
-    const stream = client.responses.stream(
-      {
-        model: req.model,
-        instructions: req.system,
-        input: openaiInput(req),
-        tools: [TOOL],
-        store: false,
-        include: ['reasoning.encrypted_content']
-      },
-      { signal: req.signal }
-    );
-    stream.on('response.output_text.delta', (event) => req.onText(event.delta));
-    const response = await stream.finalResponse();
-
-    const calls: ProposedCall[] = [];
-    for (const item of response.output) {
-      if (item.type !== 'function_call') continue;
-      let input: unknown;
-      try {
-        input = item.name === PROPOSE_COMMAND ? JSON.parse(item.arguments) : undefined;
-      } catch {
-        input = undefined;
-      }
-      calls.push({ callId: item.call_id, input });
-    }
-    const reason = response.incomplete_details?.reason;
-    const notice =
-      response.status === 'incomplete'
-        ? reason === 'content_filter'
-          ? 'The model declined to answer this.'
-          : 'The answer was cut off at the output limit.'
-        : undefined;
-    // An answer cut off midway may have cut a call off too: none are shown or kept then,
-    // since each kept call needs an answer on the next request.
-    const kept = notice ? response.output.filter((item) => item.type !== 'function_call') : response.output;
-    return {
-      payload: replayable(kept),
-      text: response.output_text ?? '',
-      calls: notice ? [] : calls,
-      notice,
-      usage: { input: response.usage?.input_tokens ?? 0, output: response.usage?.output_tokens ?? 0 }
-    };
-  },
+  turn: (req: TurnRequest): Promise<TurnResult> => openaiTurn(new OpenAI({ apiKey: req.apiKey }), req),
 
   async check(apiKey: string, model: string): Promise<void> {
     await new OpenAI({ apiKey }).models.retrieve(model);

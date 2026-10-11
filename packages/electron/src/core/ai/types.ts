@@ -7,13 +7,19 @@
  */
 
 /** `anthropic`/`openai` use an API key; `claude-cli`/`codex-cli` run the Claude Code or
- *  Codex CLI the user installed and signed in to with their subscription. */
-export type AiProviderId = 'anthropic' | 'openai' | 'claude-cli' | 'codex-cli';
+ *  Codex CLI the user installed and signed in to with their subscription; `chatgpt`
+ *  signs in to ChatGPT directly (experimental, `chatgptAuth.ts`). */
+export type AiProviderId = 'anthropic' | 'openai' | 'claude-cli' | 'codex-cli' | 'chatgpt';
 
 export type CliProviderId = Extract<AiProviderId, 'claude-cli' | 'codex-cli'>;
 
 export function isCliProvider(id: AiProviderId): id is CliProviderId {
   return id === 'claude-cli' || id === 'codex-cli';
+}
+
+/** Whether the provider signs in with an API key from the settings. */
+export function usesApiKey(id: AiProviderId): id is 'anthropic' | 'openai' {
+  return id === 'anthropic' || id === 'openai';
 }
 
 /** How careful the user should be with a proposed command. The model gives one, the

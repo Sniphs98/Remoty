@@ -174,6 +174,16 @@ export const commands = {
   async aiTest(provider?: AiProviderDto): Promise<Result<string, CommandError>> {
     return call('ai_test', provider);
   },
+  /** Signs in to ChatGPT in the browser (experimental); resolves once it comes back. */
+  async aiChatgptLogin(): Promise<Result<AiChatgptAccountDto, CommandError>> {
+    return call('ai_chatgpt_login');
+  },
+  async aiChatgptCancelLogin(): Promise<Result<null, CommandError>> {
+    return call('ai_chatgpt_cancel_login');
+  },
+  async aiChatgptLogout(): Promise<Result<null, CommandError>> {
+    return call('ai_chatgpt_logout');
+  },
   /** Whether Claude Code or the Codex CLI is installed and signed in. */
   async aiCliStatus(provider: AiCliProviderDto): Promise<Result<AiCliStatusDto, CommandError>> {
     return call('ai_cli_status', provider);
@@ -777,14 +787,24 @@ export type UpdateDownloaded = { version: string };
 
 /** The terminal's AI helper (docs/concepts/ai-integration.md). */
 /** `claude-cli`/`codex-cli`: the user's Claude or ChatGPT subscription, through the
- *  Claude Code or Codex CLI they installed and signed in to. */
-export type AiProviderDto = 'anthropic' | 'openai' | 'claude-cli' | 'codex-cli';
+ *  Claude Code or Codex CLI they installed and signed in to. `chatgpt`: signed in to
+ *  ChatGPT directly (experimental). */
+export type AiProviderDto = 'anthropic' | 'openai' | 'claude-cli' | 'codex-cli' | 'chatgpt';
 export type AiCliProviderDto = 'claude-cli' | 'codex-cli';
 export type AiCliStatusDto = { installed: boolean; path?: string; version?: string; loggedIn: boolean; detail?: string };
 export type AiRiskDto = 'safe' | 'caution' | 'danger';
 export type AiProblemStatusDto = 'open' | 'solved';
 /** `defaultModel` empty: the CLI picks. `path`: where a CLI was configured to be. */
-export type AiProviderSettingsDto = { hasKey: boolean; keyRef?: string | null; model?: string | null; defaultModel: string; path?: string | null };
+export type AiProviderSettingsDto = {
+  hasKey: boolean;
+  keyRef?: string | null;
+  model?: string | null;
+  defaultModel: string;
+  path?: string | null;
+  /** `chatgpt`: who is signed in. */
+  account?: { email?: string | null; plan?: string | null } | null;
+};
+export type AiChatgptAccountDto = { email?: string | null; plan?: string | null };
 export type AiSettingsDto = {
   provider: AiProviderDto;
   /** After a proposed command ran, its output goes to the model straight away. */
@@ -794,6 +814,7 @@ export type AiSettingsDto = {
   openai: AiProviderSettingsDto;
   'claude-cli': AiProviderSettingsDto;
   'codex-cli': AiProviderSettingsDto;
+  chatgpt: AiProviderSettingsDto;
 };
 export type AiProviderSettingsInputDto = { key?: string; clearKey?: boolean; keyRef?: string; model?: string; path?: string };
 export type AiSettingsInputDto = {
@@ -804,6 +825,7 @@ export type AiSettingsInputDto = {
   openai?: AiProviderSettingsInputDto;
   'claude-cli'?: AiProviderSettingsInputDto;
   'codex-cli'?: AiProviderSettingsInputDto;
+  chatgpt?: AiProviderSettingsInputDto;
 };
 /** Where a problem's commands run, told to the model once when the problem starts. */
 export type AiShellContextDto = { kind: string; hostLabel: string; os?: string; services?: string[] };

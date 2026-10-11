@@ -8,7 +8,7 @@ import { maskSecrets } from './mask.js';
 import { NEW_SESSION_NOTE, systemPrompt } from './prompt.js';
 import { isRisk, localRisk, maxRisk } from './risk.js';
 import type { AiStore } from './store.js';
-import { type AiProviderId, type Command, type CommandOutcome, type CommandReport, type Entry, isCliProvider, type Problem, type ShellContext } from './types.js';
+import { type AiProviderId, type Command, type CommandOutcome, type CommandReport, type Entry, isCliProvider, type Problem, type ShellContext, usesApiKey } from './types.js';
 
 /**
  * Runs the AI helper's conversations: stores what the user writes, asks the provider,
@@ -218,7 +218,7 @@ export class AiEngine {
       const provider = settings.provider;
       const model = modelFor(settings, provider);
       const cli = isCliProvider(provider);
-      const apiKey = cli ? '' : await this.deps.apiKey(settings, provider);
+      const apiKey = usesApiKey(provider) ? await this.deps.apiKey(settings, provider) : '';
       const problem = this.requireProblem(problemId);
       const session = cli ? store.cliSession(problemId, provider) : undefined;
       const result = await this.deps.backends[provider].turn({
