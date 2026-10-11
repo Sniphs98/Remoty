@@ -127,7 +127,28 @@ gehört zu einem Host (bzw. lokalen Shell-Profil), nicht zu einem Tab.
   entscheidenden Befehle). Gelöste Probleme bleiben durchsuchbar; daraus lässt sich ein Snippet oder eine
   Automation machen.
 - **Titel** vergibt die AI nach der ersten Nachricht automatisch, umbenennen geht per Klick.
+- **Auf anderen Server übernehmen** (s. unten): ein Problem als Vorlage für dasselbe Problem auf einem
+  anderen Host verwenden.
 - **Übersicht** über alle Hosts zusätzlich unter *Settings → AI → Probleme* (suchen, löschen, exportieren).
+
+### Auf anderen Servern weitermachen
+
+Ein Problem gehört zu **einem** Host. Oft muss man aber dasselbe auf mehreren Servern machen (nginx auf
+`web-1` repariert, `web-2` und `web-3` haben dasselbe Update bekommen). Dafür: im Menü des Problems
+**„Auf anderem Server übernehmen…“** → einen oder mehrere Hosts wählen.
+
+- Für jeden gewählten Host entsteht ein **eigenes, neues Problem** („nginx startet nicht — von web-1“),
+  verknüpft mit dem Original (`source_problem_id`). Jeder Server behält seinen eigenen Verlauf und seine eigenen
+  Ausgaben — gemischt wird nichts.
+- Das neue Problem startet mit einer **Zusammenfassung** des Originals: Ursache, Lösung und die Befehle, die
+  dort geholfen haben. Die AI soll damit **erst prüfen**, ob der andere Server wirklich dasselbe Problem hat
+  (Version, Konfiguration), und dann die Schritte als Befehlskarten anbieten — angepasst, falls nötig.
+- Jeder Befehl braucht auch hier einen Klick, auf jedem Server einzeln. Es gibt bewusst kein „auf allen
+  Servern gleichzeitig ausführen“.
+- Im Original zeigt eine Zeile, wohin es übernommen wurde (`→ web-2 ✔ gelöst · web-3 ● offen`), jeweils anklickbar.
+
+Mehr nicht: Ein Problem bleibt ein Server. Wer echtes „auf vielen Servern gleich“ braucht, macht aus dem gelösten
+Problem eine Automation (Phase 4).
 
 **Speicherung:** eine SQLite-Datei `ai.sqlite` im App-Ordner (neben `hosts.toml` usw.), über
 `better-sqlite3`. Electron 33 bringt Node 20 mit, das eingebaute `node:sqlite` gibt es dort noch nicht;
@@ -141,8 +162,10 @@ CREATE TABLE problems (
   title         TEXT NOT NULL,
   status        TEXT NOT NULL,    -- open | solved | archived
   summary       TEXT,             -- Zusammenfassung beim Lösen
-  provider      TEXT,             -- anthropic | openai | chatgpt (zuletzt benutzt)
+  provider      TEXT,             -- anthropic | openai | chatgpt | claude-cli | codex-cli (zuletzt benutzt)
   model         TEXT,
+  cli_session   TEXT,             -- Sitzungs-ID der CLI zum Fortsetzen (nur CLI-Weg)
+  source_problem_id TEXT REFERENCES problems(id),  -- übernommen von einem anderen Server
   created_at    INTEGER NOT NULL,
   updated_at    INTEGER NOT NULL
 );
@@ -169,8 +192,8 @@ CREATE INDEX messages_by_problem ON messages(problem_id, seq);
 CREATE INDEX problems_by_host ON problems(host_name, updated_at);
 ```
 
-Die Datenbank ist die **einzige Quelle der Wahrheit** (die APIs merken sich nichts): Auch wenn man
-den Anbieter wechselt (Claude ↔ OpenAI ↔ ChatGPT-Abo), baut Remoty den Verlauf aus SQLite wieder auf. Bei sehr langen
+Die Datenbank ist die **Quelle der Wahrheit**: Auch wenn die Sitzung einer CLI weg ist oder man
+den Anbieter oder Weg wechselt (API-Key ↔ Abo, Claude ↔ ChatGPT), baut Remoty den Verlauf aus SQLite wieder auf. Bei sehr langen
 Problemen gehen ältere Teile als Zusammenfassung mit, die letzten Schritte vollständig.
 
 Gespeichert wird nur, was ohnehin an die AI ging, also bereits **maskiert** (keine Passwörter/Tokens).
@@ -230,85 +253,116 @@ einem Alpine-Server brauchen unterschiedliche Befehle — der Shell-Typ gehört 
 
 ## Anbieter
 
-Remoty spricht die APIs **direkt** an, ohne fremde CLI dazwischen. Das hält Installation, Code und
-Verhalten in Remotys Hand: eigener kurzer Systemprompt, genau ein Werkzeug, eine Schleife.
+Zwei Arten, an ein Modell zu kommen — hinter **einem** Interface, damit Chat, Befehlskarten und
+SQLite davon nichts wissen müssen:
 
-| Phase | Anbieter | Anmeldung | Abrechnung |
-|---|---|---|---|
-| **1** | Claude (Anthropic API) | API-Key | pro Anfrage, über die Anthropic Console |
-| **1** | OpenAI (API) | API-Key | pro Anfrage, über die OpenAI Platform |
-| **2** | ChatGPT (Abo Plus/Pro) | „Mit ChatGPT anmelden“ im Browser | über das Abo |
-| — | Claude mit Abo | **nicht vorgesehen** | Anthropic erlaubt Abo-Logins in fremden Apps nicht ([Legal and compliance](https://code.claude.com/docs/en/legal-and-compliance)) |
+- **Direkt:** Remoty spricht die API selbst an (Phase 1 mit API-Key, Phase 2 ChatGPT-Login).
+- **Über eine CLI:** Remoty startet die offizielle CLI des Anbieters, in der sich der Nutzer mit seinem Abo
+  angemeldet hat (Phase 2: Claude Code und Codex). Remoty sieht dabei nie ein Token.
+
+| Phase | Anbieter | Weg | Anmeldung | Abrechnung | Status |
+|---|---|---|---|---|---|
+| **1** | Claude | direkt (Anthropic API) | API-Key | pro Anfrage | offiziell |
+| **1** | OpenAI | direkt (OpenAI API) | API-Key | pro Anfrage | offiziell |
+| **2** | ChatGPT Plus/Pro | direkt | „Mit ChatGPT anmelden“ in Remoty | Abo | geduldet, nicht dokumentiert → *experimentell* |
+| **2** | ChatGPT Plus/Pro | Codex-CLI | `codex login` | Abo | offizielle CLI |
+| **2** | Claude Pro/Max | Claude-Code-CLI | `claude` → `/login` | Abo | erlaubt, solange das unveränderte Claude Code läuft ([Legal and compliance](https://code.claude.com/docs/en/legal-and-compliance)) |
+
+Claude mit Abo gibt es **nur** über die CLI: Anthropic verbietet fremden Apps, selbst einen Claude-Login
+anzubieten oder Abo-Tokens zu verwenden. Erlaubt ist ausdrücklich, dass der Nutzer sich im originalen
+Claude Code mit seinem Abo anmeldet — und genau das startet Remoty.
 
 ### Gemeinsames Interface
 
+Das Interface liegt eine Ebene über einzelnen API-Aufrufen, denn eine CLI führt ihre Schleife selbst:
+
 ```ts
-// packages/electron/src/core/ai/provider.ts
-export interface AiProvider {
-  id: 'anthropic' | 'openai' | 'chatgpt';
-  /** Ein Schritt der Schleife: Verlauf rein, Text-Stream + evtl. Befehlsvorschläge raus. */
-  turn(req: AiTurn, signal: AbortSignal): AsyncIterable<AiEvent>;
+// packages/electron/src/core/ai/backend.ts
+export interface AiBackend {
+  id: 'anthropic' | 'openai' | 'chatgpt' | 'claude-cli' | 'codex-cli';
+  status(): Promise<{ ready: boolean; detail?: string }>;   // Key da? CLI installiert + angemeldet?
+  /** Öffnet ein Problem (neu oder fortgesetzt). */
+  open(problem: ProblemRef, history: AiMessage[], hooks: AiHooks): Promise<AiSession>;
 }
 
-export interface AiTurn {
-  model: string;
-  system: string;               // Remotys Systemprompt (Shell, OS, Dienste, Regeln)
-  messages: AiMessage[];        // aus SQLite, ältere Teile zusammengefasst
+export interface AiSession {
+  send(text: string, attachments: Attachment[]): Promise<void>;   // Nachricht + Terminal-Kontext
+  cancel(): void;
+  close(): void;
 }
 
-export type AiEvent =
-  | { type: 'text'; delta: string }
-  | { type: 'propose'; id: string; command: string; explanation: string; risk: 'safe' | 'caution' | 'danger' }
-  | { type: 'done'; usage?: { input: number; output: number } };
+export interface AiHooks {
+  onText(delta: string): void;
+  /** Befehlsvorschlag. Wartet, bis der Nutzer ▶ geklickt (→ Ausgabe) oder übersprungen hat. */
+  onPropose(cmd: ProposedCommand): Promise<CommandResult>;
+  onDone(usage?: Usage): void;
+}
 ```
 
-**Die Schleife** liegt einmal in Remoty, nicht pro Anbieter:
+`propose_command` ist in **allen** Wegen das **einzige** Werkzeug der AI, und es führt nichts aus —
+es zeigt nur eine Befehlskarte und liefert das Ergebnis, sobald der Nutzer geklickt hat.
 
-1. `turn()` mit dem Verlauf aufrufen → Text streamt in den Chat.
-2. Ruft das Modell das Werkzeug `propose_command` auf, wird daraus eine Befehlskarte. Die Schleife wartet.
+### Weg 1: direkt (API-Key, ChatGPT-Login)
+
+Remoty führt die Schleife selbst (`core/ai/loop.ts`), einmal für alle direkten Anbieter:
+
+1. Verlauf + Systemprompt an die API → Text streamt in den Chat (`onText`).
+2. Ruft das Modell `propose_command` auf → `onPropose` → Befehlskarte, die Schleife wartet.
 3. Klick auf *▶ Ausführen* → Ausgabe + Exit-Code werden das Ergebnis des Werkzeugaufrufs →
    bei *„AI antwortet direkt auf das Ergebnis“* sofort zurück zu 1, sonst mit der nächsten Nachricht.
-4. *Überspringen* liefert „vom Nutzer übersprungen“ als Ergebnis.
+4. *Überspringen* liefert „vom Nutzer übersprungen“.
 
-`propose_command` ist das **einzige** Werkzeug, das Remoty dem Modell gibt, und es führt nichts aus.
+Die Adapter sind dünn: sie übersetzen nur zwischen Remotys Nachrichten und dem API-Format.
 
-### Phase 1: API-Key (Claude + OpenAI)
+- **Claude (Phase 1):** `@anthropic-ai/sdk`, Messages API mit Streaming und Tool Use. Systemprompt und
+  Werkzeug bleiben über ein Problem gleich → Prompt-Caching spart bei langen Problemen viel Eingabe.
+- **OpenAI (Phase 1):** `openai`, Responses API mit Streaming und Function Calling.
+- **ChatGPT-Login (Phase 2, experimentell):** *Settings → AI → Mit ChatGPT anmelden* öffnet den Browser mit dem
+  OpenAI-Login (OAuth mit PKCE, Rückleitung auf einen kurzlebigen `localhost`-Port), wie es die Codex-CLI macht
+  — und wie es Pi und die opencode-Plugins tun. Remoty speichert Access-/Refresh-Token verschlüsselt und erneuert
+  sie selbst. Anfragen gehen an dasselbe Backend wie die Codex-CLI, im Format der Responses API → der
+  OpenAI-Adapter aus Phase 1 wird größtenteils wiederverwendet. Eigene Datei `core/ai/chatgptAuth.ts`, damit
+  sich der Weg leicht anpassen oder entfernen lässt, falls OpenAI etwas ändert. Schlägt er fehl, bietet Remoty
+  die Codex-CLI oder den API-Key an.
+- **Keys/Tokens** wie das GitHub-Token (`core/config/github.ts`): verschlüsselt über `secretCipher`
+  oder als 1Password-Referenz `op://…`; sie verlassen nie den Main-Prozess.
+- Remoty zeigt am Problem die verbrauchten Tokens (aus `usage`), damit man die Kosten im Blick hat.
 
-- **Claude:** offizielles SDK `@anthropic-ai/sdk`, Messages API mit Streaming und Tool Use.
-  Systemprompt und Werkzeugdefinition bleiben über ein Problem hinweg gleich → Prompt-Caching spart
-  bei langen Problemen den Großteil der Eingabe-Tokens.
-- **OpenAI:** offizielles SDK `openai`, Responses API mit Streaming und Function Calling.
-- **Key-Speicherung** wie das GitHub-Token (`core/config/github.ts`): verschlüsselt über `secretCipher`
-  (DPAPI/Keychain/libsecret) **oder** als 1Password-Referenz `op://…`, gelesen erst beim Senden. Der Key
-  verlässt nie den Main-Prozess.
-- **Modell** pro Anbieter wählbar; Remoty zeigt am Problem die verbrauchten Tokens (aus `usage`), damit
-  man die Kosten im Blick hat.
-- **Testen der Einstellungen:** Knopf *„Verbindung prüfen“* schickt eine Mini-Anfrage.
+### Weg 2: über die CLI (Claude Code, Codex)
 
-### Phase 2: ChatGPT-Abo
+Die CLI führt die Schleife selbst; Remoty klinkt sich mit einem eigenen **MCP-Server** ein, der genau ein
+Werkzeug anbietet: `propose_command`.
 
-Wer ChatGPT Plus/Pro hat, soll das statt eines API-Keys nutzen können. Zwei Wege, gleiches Interface:
+```
+Remoty (Main)                                   claude / codex (vom Nutzer installiert + angemeldet)
+─────────────                                   ───────────────────────────────────────────────────
+MCP-Server auf 127.0.0.1:<zufällig>             claude -p --input-format stream-json
+  (Bearer-Token pro Sitzung)                           --output-format stream-json
+  └─ propose_command ◀── Werkzeugaufruf ──────         --mcp-config <remoty>  --strict-mcp-config
+       │ onPropose → Befehlskarte, wartet               --tools ""   (eingebaute Werkzeuge aus)
+       └─ Ausgabe + Exit-Code ─── Ergebnis ─────▶       --system-prompt <Remotys Prompt>
+                                                        --resume <cli_session>
+CliSession ◀──────────── Text-Stream (JSONL) ──
+```
 
-**A — Direkter Login in Remoty (wie Pi und die opencode-Plugins)** *(bevorzugt)*
-
-- *Settings → AI → Mit ChatGPT anmelden* öffnet den Browser mit dem OpenAI-Login (OAuth mit PKCE,
-  Rückleitung auf einen kurzlebigen `localhost`-Port), so wie es die Codex-CLI macht.
-- Remoty bekommt Access- und Refresh-Token, speichert sie verschlüsselt über `secretCipher` und
-  erneuert sie selbst. Nichts davon geht in den Renderer.
-- Anfragen gehen an dasselbe Backend, das die Codex-CLI nutzt; das Format ist das der Responses API,
-  der Code aus Phase 1 (OpenAI) wird also größtenteils wiederverwendet.
-- **Risiko, offen benannt:** OpenAI duldet das heute, es ist aber **nicht offiziell dokumentiert**. Login-Ablauf
-  oder Backend können sich ohne Ankündigung ändern, und OpenAI könnte es untersagen. Darum:
-  - als „experimentell“ gekennzeichnet, mit Hinweis beim Anmelden;
-  - eigene Datei `core/ai/chatgptAuth.ts`, damit sich der Weg leicht anpassen oder entfernen lässt;
-  - schlägt die Anmeldung fehl, bietet Remoty Weg B oder den API-Key an.
-
-**B — Über die Codex-CLI (Ausweichweg)**
-
-- Nutzer installiert `codex` und meldet sich dort an (`codex login`); Remoty startet sie über
-  `@openai/codex-sdk` und bekommt nie ein Token zu sehen.
-- Langsamer und mehr Aufwand (eigene Werkzeuge der CLI abschalten, `propose_command` über MCP einhängen),
-  dafür nah am offiziellen Weg.
+- **Claude Code:** Remoty startet `claude` im Druckmodus mit JSON-Streams für Ein- und Ausgabe. Die eingebauten
+  Werkzeuge (Shell, Dateien, Web) sind abgeschaltet, Remotys MCP-Server ist der einzige. Remoty ersetzt den
+  Systemprompt durch seinen eigenen, damit sich die CLI wie ein Terminal-Helfer verhält und nicht wie ein
+  Coding-Agent. Das Programm selbst wird nicht verändert — Bedingung dafür, dass der Abo-Login erlaubt ist.
+- **Codex:** über `@openai/codex-sdk` (startet die CLI, JSONL über stdin/stdout). Remotys MCP-Server in der
+  Codex-Konfiguration, Sandbox `read-only`, Freigaben aus.
+- **Warum ein MCP-Server über localhost** statt über stdio: Die CLI startet stdio-Server als eigenen Prozess;
+  der müsste dann erst wieder mit Remoty reden. Ein HTTP-Server im Main-Prozess hängt direkt an `onPropose`.
+  Er lauscht nur auf `127.0.0.1` und verlangt ein zufälliges Token, das nur die eine CLI-Sitzung kennt.
+- **Fortsetzen:** Beide CLIs speichern Sitzungen selbst (`claude --resume <id>`, Codex `resumeThread(id)`);
+  die ID steht in `problems.cli_session`. Fehlt sie oder ist sie ungültig, startet Remoty eine neue Sitzung
+  und gibt den Verlauf aus SQLite als Einstieg mit. SQLite bleibt die Quelle der Wahrheit.
+- **Einrichtung:** *Settings → AI* prüft, ob `claude`/`codex` installiert und angemeldet sind
+  (`claude --version`, `codex login status`), und öffnet sonst einen lokalen Terminal-Tab mit dem Login-Befehl.
+- **Im Prototyp prüfen:** genaue Flags der jeweiligen CLI-Version (Werkzeuge abschalten, MCP über HTTP mit
+  Header, Systemprompt ersetzen). Die CLIs ändern sich schnell; die Adapter prüfen beim Start die Version und
+  sagen klar, wenn sie zu alt oder zu neu ist.
+- **Langsamer als direkt** (CLI-Start ~1–2 s pro Problem, danach ähnlich), dafür ohne Extra-Kosten.
 
 ---
 
@@ -319,9 +373,11 @@ Renderer (Svelte)                                  Main (Electron)
 ─────────────────                                  ───────────────
 TerminalView.svelte                                ipc/ai.ts
   ├─ AiChatPanel.svelte   ── ai_request ─────────▶   ├─ Kontext prüfen, Secrets maskieren
-  │   ├─ CommandCard.svelte (▶ / ✎ / ⧉)               ├─ core/ai/loop.ts (Schleife, propose_command)
-  │   └─ ProblemList.svelte                            ├─ core/ai/anthropic.ts, openai.ts, chatgpt.ts
+  │   ├─ CommandCard.svelte (▶ / ✎ / ⧉)               ├─ core/ai/backend.ts (Interface)
+  │   └─ ProblemList.svelte                            ├─ core/ai/loop.ts + anthropic.ts, openai.ts, chatgpt.ts
                                                      ├─ core/ai/chatgptAuth.ts (Phase 2, Login)
+                                                     ├─ core/ai/claudeCli.ts, codexCli.ts (Phase 2)
+                                                     ├─ core/ai/mcpServer.ts (Phase 2, propose_command)
   ├─ AiCommandBar.svelte                             ├─ core/ai/store.ts (ai.sqlite)
                                                      └─ core/config/ai.ts  (ai.toml)
   ├─ aiCapture.ts   (Ausgabe pro Befehl mitschneiden: OSC 133 bzw. Fallback)
@@ -335,7 +391,8 @@ Das folgt den vorhandenen Mustern:
 - **IPC:** `ipcMain.handle('ai_request', …)` wie in `ipc/terminal.ts`; die Antwort streamt über ein
   Event pro Anfrage (`ai-stream-<id>`), genau wie Terminal-Output über `terminal-output-<id>`.
 - **Zugangsdaten nur im Main-Prozess:** API-Keys und ChatGPT-Tokens verschlüsselt über `secretCipher`
-  bzw. als 1Password-Referenz, wie das GitHub-Token. Der Renderer sieht nur „angemeldet / nicht angemeldet“.
+  bzw. als 1Password-Referenz, wie das GitHub-Token. Beim CLI-Weg hat Remoty gar keine Zugangsdaten.
+  Der Renderer sieht nur „angemeldet / nicht angemeldet“.
 - **Eine laufende Schleife pro offenem Problem**, im Main-Prozess; schließt man den Tab, wird eine laufende
   Anfrage abgebrochen, das Problem bleibt in SQLite.
 - **Ausführen/Einfügen:** über den bestehenden `sendInput`-Pfad in `TerminalView.svelte`
@@ -351,7 +408,7 @@ Das folgt den vorhandenen Mustern:
 ```toml
 # ai.toml
 enabled = false               # aus, bis der Nutzer es aktiviert
-provider = "anthropic"        # anthropic | openai | chatgpt (Phase 2)
+provider = "anthropic"        # anthropic | openai | chatgpt | claude-cli | codex-cli
 
 [anthropic]
 apiKey = "<verschlüsselt>"    # oder:
@@ -366,6 +423,10 @@ model = ""
 [chatgpt]                     # Phase 2, experimentell
 refreshToken = "<verschlüsselt>"
 model = ""
+
+[cli]                         # Phase 2
+claudePath = ""               # leer = im PATH suchen
+codexPath = ""
 
 [general]
 deleteSolvedAfterDays = 0     # 0 = nie
@@ -408,7 +469,7 @@ disabledHosts = ["prod-db"]   # hier nie etwas senden
 | Phase | Inhalt | Aufwand |
 |---|---|---|
 | **1 – Chat mit API-Key** | Claude + OpenAI per API-Key (verschlüsselt / 1Password), Schleife mit `propose_command`, Chat-Seitenleiste, Befehlskarten ▶ / ✎ / ⧉, Mitschnitt per Fallback (Prompt/Ruhe/„Fertig“), *AI antwortet direkt auf das Ergebnis*, Risiko-Regeln, Maskierung, `ai.sqlite` mit Problem-Liste, ＋ Neues Problem, Weitermachen nach Neustart | groß |
-| **2 – ChatGPT-Abo** | „Mit ChatGPT anmelden“ (direkt, experimentell), Token-Erneuerung, Ausweichweg über die Codex-CLI, Anbieter pro Problem wählbar | mittel |
+| **2 – Abos** | ChatGPT direkt („Mit ChatGPT anmelden“, experimentell) · ChatGPT über die Codex-CLI · Claude über die Claude-Code-CLI · MCP-Server mit `propose_command` · Anbieter/Weg pro Problem wählbar · Problem auf andere Server übernehmen | groß |
 | **3 – Mitlesen + Shell-Integration** | *Terminal mitlesen*, Rechtsklick „Im Chat fragen“, OSC 133/7 für exakte Abgrenzung + Exit-Code, Fehler-Chip, als gelöst markieren + Zusammenfassung | mittel |
 | **4 – Brücken** | Gelöstes Problem → Snippet/Automation, Befehlsleiste, Ollama/lokale Modelle | optional |
 
@@ -421,6 +482,4 @@ ein Fake-Provider für die Playwright-E2E-Tests, damit keine echte API nötig is
 
 ## Offene Fragen
 
-- Probleme pro Host oder global (ein Problem über mehrere Server, z. B. Web + DB)?
-- Phase 2: reicht der direkte ChatGPT-Login, oder soll der Ausweichweg über die Codex-CLI gleich mitkommen?
 - Soll es Firmen-Vorgaben geben (z. B. nur lokale Modelle erlaubt, per Config fest)?
