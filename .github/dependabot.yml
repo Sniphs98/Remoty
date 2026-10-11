@@ -10,6 +10,16 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: chore(deps)
+    ignore:
+      # svelte-check and SvelteKit 2 support TypeScript 5 and 6 only; with 7 svelte-check
+      # quietly installs its own TypeScript 6. Lift this with the move to a SvelteKit that
+      # supports 7.
+      - dependency-name: typescript
+        update-types: ['version-update:semver-major']
+      # adapter-static 4 is for SvelteKit 3; this app is on SvelteKit 2. Lift this with
+      # the move to SvelteKit 3.
+      - dependency-name: '@sveltejs/adapter-static'
+        update-types: ['version-update:semver-major']
     groups:
       dev-dependencies:
         dependency-type: development
