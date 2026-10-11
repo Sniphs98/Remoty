@@ -1,15 +1,17 @@
 import { join } from 'node:path';
-import type { IpcMain } from 'electron';
+import { shell, type IpcMain } from 'electron';
 
 import { anthropicBackend } from '../core/ai/anthropic.js';
 import type { AiBackend } from '../core/ai/backend.js';
+import { chatgptBackend } from '../core/ai/chatgpt.js';
+import { ChatgptCredentials, loginWithBrowser } from '../core/ai/chatgptAuth.js';
 import { claudeCliBackend, claudeCliStatus } from '../core/ai/claudeCli.js';
 import type { CliStatus } from '../core/ai/cliProcess.js';
 import { codexCliBackend, codexCliStatus } from '../core/ai/codexCli.js';
 import { AiEngine, entryView, errorMessage, problemView, type EngineEvent, type EntryView, type ProblemView } from '../core/ai/engine.js';
 import { openaiBackend } from '../core/ai/openai.js';
 import { AiStore } from '../core/ai/store.js';
-import { type AiProviderId, type Command, type CommandReport, isCliProvider, type ProblemStatus, type ShellContext } from '../core/ai/types.js';
+import { type AiProviderId, type Command, type CommandReport, type ProblemStatus, type ShellContext, usesApiKey } from '../core/ai/types.js';
 import {
   AI_PROVIDERS,
   DEFAULT_MODELS,
@@ -40,6 +42,8 @@ export interface AiProviderSettingsDto {
   defaultModel: string;
   /** CLI providers: the configured path to the program. */
   path?: string;
+  /** `chatgpt`: who is signed in (`hasKey` says whether anyone is). */
+  account?: { email?: string; plan?: string };
 }
 
 export interface AiSettingsDto {
@@ -50,6 +54,7 @@ export interface AiSettingsDto {
   openai: AiProviderSettingsDto;
   'claude-cli': AiProviderSettingsDto;
   'codex-cli': AiProviderSettingsDto;
+  chatgpt: AiProviderSettingsDto;
 }
 
 export interface AiProviderSettingsInputDto {
@@ -72,6 +77,7 @@ export interface AiSettingsInputDto {
   openai?: AiProviderSettingsInputDto;
   'claude-cli'?: AiProviderSettingsInputDto;
   'codex-cli'?: AiProviderSettingsInputDto;
+  chatgpt?: AiProviderSettingsInputDto;
 }
 
 export type AiCliStatusDto = CliStatus;
@@ -89,11 +95,23 @@ function cliWorkDir(): string {
   return join(appConfigDir(), 'ai-cli');
 }
 
+/** The ChatGPT sign-in (experimental), kept in `ai.toml`'s `[chatgpt]`. Saved with a
+ *  fresh read, so it never overwrites a settings change made in between. */
+const chatgptCredentials = new ChatgptCredentials({
+  load: async () => (await loadAiSettings()).chatgpt.login,
+  save: async (login) => {
+    const current = await loadAiSettings();
+    await saveAiSettings({ ...current, chatgpt: { ...current.chatgpt, login } });
+  }
+});
+let chatgptLogin: AbortController | undefined;
+
 const BACKENDS: Record<AiProviderId, AiBackend> = {
   anthropic: anthropicBackend,
   openai: openaiBackend,
   'claude-cli': claudeCliBackend(cliWorkDir),
-  'codex-cli': codexCliBackend(cliWorkDir)
+  'codex-cli': codexCliBackend(cliWorkDir),
+  chatgpt: chatgptBackend(chatgptCredentials)
 };
 
 let storePromise: Promise<AiStore> | undefined;
@@ -117,11 +135,12 @@ export function closeAi(): void {
 
 function settingsDto(s: AiSettings): AiSettingsDto {
   const provider = (id: AiProviderId): AiProviderSettingsDto => ({
-    hasKey: Boolean(s[id].apiKey),
+    hasKey: Boolean(s[id].apiKey || s[id].login),
     keyRef: s[id].apiKeyRef,
     model: s[id].model,
     defaultModel: DEFAULT_MODELS[id],
-    ...(s[id].path ? { path: s[id].path } : {})
+    ...(s[id].path ? { path: s[id].path } : {}),
+    ...(s[id].login ? { account: { email: s[id].login.email, plan: s[id].login.plan } } : {})
   });
   return {
     provider: s.provider,
@@ -130,15 +149,18 @@ function settingsDto(s: AiSettings): AiSettingsDto {
     anthropic: provider('anthropic'),
     openai: provider('openai'),
     'claude-cli': provider('claude-cli'),
-    'codex-cli': provider('codex-cli')
+    'codex-cli': provider('codex-cli'),
+    chatgpt: provider('chatgpt')
   };
 }
 
-function applyProvider(current: AiSettings[AiProviderId], input: AiProviderSettingsInputDto | undefined): AiSettings[AiProviderId] {
+export function applyProvider(current: AiSettings[AiProviderId], input: AiProviderSettingsInputDto | undefined): AiSettings[AiProviderId] {
   if (!input) return current;
   const keyRef = input.keyRef === undefined ? current.apiKeyRef : normalizeReference(input.keyRef) || undefined;
   if (keyRef && !isSecretReference(keyRef)) throw new Error('1Password reference must look like op://vault/item/field');
   return {
+    // What this input does not set stays (the ChatGPT sign-in, above all).
+    ...current,
     apiKey: input.clearKey ? undefined : input.key?.trim() || current.apiKey,
     apiKeyRef: keyRef,
     model: input.model === undefined ? current.model : input.model.trim() || undefined,
@@ -200,14 +222,34 @@ export function registerAiIpc(ipcMain: IpcMain, state: GuiState): void {
       const id = isAiProvider(provider) ? provider : settings.provider;
       const model = modelFor(settings, id);
       try {
-        if (isCliProvider(id)) await BACKENDS[id].check('', model, settings[id].path);
-        else await BACKENDS[id].check(await resolveAiKey(settings, id), model);
+        if (usesApiKey(id)) await BACKENDS[id].check(await resolveAiKey(settings, id), model);
+        else await BACKENDS[id].check('', model, settings[id].path);
       } catch (err) {
         throw new Error(errorMessage(err));
       }
       return model || 'the CLI\'s default model';
     })
   );
+
+  // ChatGPT sign-in (experimental): opens the browser at OpenAI's sign-in page and
+  // resolves with who signed in, once the browser comes back.
+  ipcMain.handle(
+    'ai_chatgpt_login',
+    handle(async () => {
+      chatgptLogin?.abort();
+      const controller = new AbortController();
+      chatgptLogin = controller;
+      try {
+        const tokens = await loginWithBrowser({ open: (url) => shell.openExternal(url), signal: controller.signal });
+        const account = await chatgptCredentials.signIn(tokens);
+        return { email: account.email, plan: account.plan };
+      } finally {
+        if (chatgptLogin === controller) chatgptLogin = undefined;
+      }
+    })
+  );
+  ipcMain.handle('ai_chatgpt_cancel_login', handle(async () => chatgptLogin?.abort()));
+  ipcMain.handle('ai_chatgpt_logout', handle(async () => chatgptCredentials.signOut()));
 
   // Whether a CLI provider is installed and signed in, without asking a model anything.
   ipcMain.handle(

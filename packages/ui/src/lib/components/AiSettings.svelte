@@ -3,30 +3,37 @@
   // API key — a 1Password reference when switched on, else a key kept in the app,
   // encrypted like host passwords; the key never comes back from the app, only whether
   // one is stored. Or with the user's subscription, through the Claude Code or Codex CLI
-  // they installed and signed in to; Remoty only shows whether that worked. "Test
-  // connection" checks the key and the model, or that the CLI is signed in.
+  // they installed and signed in to; Remoty only shows whether that worked. Or, for
+  // OpenAI, by signing in to ChatGPT right here (experimental: the sign-in the Codex CLI
+  // uses, which OpenAI does not document for other apps). "Test connection" checks the
+  // key and the model, or that the CLI or ChatGPT is signed in.
   import { onMount } from 'svelte';
   import { Surface, Icon } from '$lib/theme';
   import OnePasswordToggle from './OnePasswordToggle.svelte';
   import OnePasswordCliHint from './OnePasswordCliHint.svelte';
   import Switch from './Switch.svelte';
-  import { aiCliStatus, aiSaveSettings, aiSettings, aiTest } from '$lib/ipc/commands';
+  import { aiChatgptCancelLogin, aiChatgptLogin, aiChatgptLogout, aiCliStatus, aiSaveSettings, aiSettings, aiTest } from '$lib/ipc/commands';
   import { openExternal } from '$lib/ipc/openExternal';
-  import type { AiCliProviderDto, AiCliStatusDto, AiProviderDto } from '$lib/bindings';
+  import type { AiChatgptAccountDto, AiCliProviderDto, AiCliStatusDto, AiProviderDto } from '$lib/bindings';
 
   type Form = { hasKey: boolean; from1P: boolean; keyRef: string; key: string; model: string; defaultModel: string; path: string };
   const empty = (defaultModel: string): Form => ({ hasKey: false, from1P: false, keyRef: '', key: '', model: '', defaultModel, path: '' });
 
   type Family = 'claude' | 'openai';
-  type Access = 'key' | 'subscription';
+  type Access = 'key' | 'subscription' | 'login';
   const FAMILIES: { id: Family; label: string; keyHint: string; keyUrl: string }[] = [
     { id: 'claude', label: 'Claude', keyHint: 'sk-ant-…', keyUrl: 'https://platform.claude.com/settings/keys' },
     { id: 'openai', label: 'OpenAI', keyHint: 'sk-…', keyUrl: 'https://platform.openai.com/api-keys' }
   ];
-  const PROVIDER: Record<Family, Record<Access, AiProviderDto>> = {
+  const PROVIDER: Record<Family, Partial<Record<Access, AiProviderDto>>> = {
     claude: { key: 'anthropic', subscription: 'claude-cli' },
-    openai: { key: 'openai', subscription: 'codex-cli' }
+    openai: { key: 'openai', subscription: 'codex-cli', login: 'chatgpt' }
   };
+  const ACCESS: { id: Access; label: string }[] = [
+    { id: 'key', label: 'API key' },
+    { id: 'subscription', label: 'Subscription' },
+    { id: 'login', label: 'ChatGPT login' }
+  ];
   const CLI: Record<AiCliProviderDto, { name: string; plan: string; program: string; signIn: string; installUrl: string }> = {
     'claude-cli': {
       name: 'Claude Code',
@@ -43,7 +50,7 @@
       installUrl: 'https://developers.openai.com/codex/cli'
     }
   };
-  const ALL: AiProviderDto[] = ['anthropic', 'openai', 'claude-cli', 'codex-cli'];
+  const ALL: AiProviderDto[] = ['anthropic', 'openai', 'claude-cli', 'codex-cli', 'chatgpt'];
   const isCli = (id: AiProviderDto): id is AiCliProviderDto => id === 'claude-cli' || id === 'codex-cli';
 
   let loaded = $state(false);
@@ -53,14 +60,17 @@
     anthropic: empty('claude-opus-5-5'),
     openai: empty('gpt-5.5'),
     'claude-cli': empty(''),
-    'codex-cli': empty('')
+    'codex-cli': empty(''),
+    chatgpt: empty('gpt-5.5')
   });
+  let chatgptAccount = $state<AiChatgptAccountDto | undefined>(undefined);
+  let signingIn = $state(false);
   let saving = $state(false);
   let status = $state<{ kind: 'idle' } | { kind: 'busy' } | { kind: 'ok'; text: string } | { kind: 'error'; text: string }>({ kind: 'idle' });
   let cliStatus = $state<Partial<Record<AiCliProviderDto, AiCliStatusDto | 'checking'>>>({});
 
   const family = $derived<Family>(provider === 'anthropic' || provider === 'claude-cli' ? 'claude' : 'openai');
-  const access = $derived<Access>(isCli(provider) ? 'subscription' : 'key');
+  const access = $derived<Access>(isCli(provider) ? 'subscription' : provider === 'chatgpt' ? 'login' : 'key');
   const current = $derived(FAMILIES.find((f) => f.id === family)!);
   const form = $derived(forms[provider]);
   const cli = $derived(isCli(provider) ? CLI[provider] : undefined);
@@ -99,6 +109,7 @@
           path: p.path ?? ''
         };
       }
+      if (s.chatgpt?.account) chatgptAccount = s.chatgpt.account;
       if (isCli(provider)) void checkCli(provider);
     } catch {
       // Not under Electron: the section shows, empty.
@@ -111,6 +122,7 @@
   function input(id: AiProviderDto) {
     const f = forms[id];
     if (isCli(id)) return { model: f.model, path: f.path };
+    if (id === 'chatgpt') return { model: f.model };
     return f.from1P ? { keyRef: f.keyRef, model: f.model } : { key: f.key || undefined, keyRef: '', model: f.model };
   }
 
@@ -127,11 +139,39 @@
       if (isCli(provider)) {
         await checkCli(provider);
         await test();
+      } else if (provider === 'chatgpt') {
+        if (chatgptAccount) await test();
       } else if (form.hasKey || (form.from1P && form.keyRef.trim())) await test();
     } catch (e) {
       status = { kind: 'error', text: message(e) };
     } finally {
       saving = false;
+    }
+  }
+
+  async function signInChatgpt(): Promise<void> {
+    signingIn = true;
+    status = { kind: 'idle' };
+    try {
+      chatgptAccount = await aiChatgptLogin();
+      // Signing in is choosing it.
+      await aiSaveSettings({ provider: 'chatgpt', replyToResult, chatgpt: input('chatgpt') });
+      status = { kind: 'ok', text: `Signed in to ChatGPT${chatgptAccount.email ? ` as ${chatgptAccount.email}` : ''}.` };
+    } catch (e) {
+      const text = message(e);
+      if (text !== 'stopped') status = { kind: 'error', text };
+    } finally {
+      signingIn = false;
+    }
+  }
+
+  async function signOutChatgpt(): Promise<void> {
+    try {
+      await aiChatgptLogout();
+      chatgptAccount = undefined;
+      status = { kind: 'idle' };
+    } catch (e) {
+      status = { kind: 'error', text: message(e) };
     }
   }
 
@@ -145,7 +185,14 @@
     status = { kind: 'busy' };
     try {
       const model = await aiTest(provider);
-      status = { kind: 'ok', text: isCli(provider) ? `Ready — ${CLI[provider].name} is signed in.` : `Connected — using ${model}.` };
+      status = {
+        kind: 'ok',
+        text: isCli(provider)
+          ? `Ready — ${CLI[provider].name} is signed in.`
+          : provider === 'chatgpt'
+            ? `Signed in to ChatGPT — using ${model}.`
+            : `Connected — using ${model}.`
+      };
     } catch (e) {
       status = { kind: 'error', text: message(e) };
     }
@@ -173,7 +220,12 @@
       <p class="text-sm">Provider</p>
       <div class="flex gap-1 rounded-xl bg-surface-inset p-1">
         {#each FAMILIES as f (f.id)}
-          <button type="button" class="{seg} {segState(family === f.id)}" aria-pressed={family === f.id} onclick={() => choose(PROVIDER[f.id][access])}>
+          <button
+            type="button"
+            class="{seg} {segState(family === f.id)}"
+            aria-pressed={family === f.id}
+            onclick={() => choose(PROVIDER[f.id][access] ?? PROVIDER[f.id].key!)}
+          >
             {f.label}
           </button>
         {/each}
@@ -183,17 +235,11 @@
     <div class="flex items-center justify-between gap-4">
       <p class="text-sm">Sign in with</p>
       <div class="flex gap-1 rounded-xl bg-surface-inset p-1">
-        <button type="button" class="{seg} {segState(access === 'key')}" aria-pressed={access === 'key'} onclick={() => choose(PROVIDER[family].key)}>
-          API key
-        </button>
-        <button
-          type="button"
-          class="{seg} {segState(access === 'subscription')}"
-          aria-pressed={access === 'subscription'}
-          onclick={() => choose(PROVIDER[family].subscription)}
-        >
-          Subscription
-        </button>
+        {#each ACCESS.filter((a) => PROVIDER[family][a.id]) as a (a.id)}
+          <button type="button" class="{seg} {segState(access === a.id)}" aria-pressed={access === a.id} onclick={() => choose(PROVIDER[family][a.id]!)}>
+            {a.label}
+          </button>
+        {/each}
       </div>
     </div>
 
@@ -240,6 +286,34 @@
           autocomplete="off"
         />
       </label>
+    {:else if provider === 'chatgpt'}
+      <div class="space-y-2 rounded-lg bg-surface-inset px-3 py-2 text-xs text-muted" data-testid="ai-chatgpt-login">
+        <p>
+          <span class="font-medium text-status-warn">Experimental.</span> Signs in to your ChatGPT plan right here, the
+          way the Codex CLI does. OpenAI does not document this for other apps, so it may stop working at any time —
+          <span class="text-fg">Subscription</span> (through the Codex CLI) is the supported way to the same plan.
+        </p>
+        {#if chatgptAccount}
+          <p class="flex items-center gap-1.5 text-status-ok">
+            <Icon name="check" size={12} />Signed in{chatgptAccount.email ? ` as ${chatgptAccount.email}` : ''}{chatgptAccount.plan
+              ? ` (${chatgptAccount.plan})`
+              : ''}
+          </p>
+        {:else if signingIn}
+          <p>Finish signing in in your browser…</p>
+        {:else}
+          <p>Not signed in.</p>
+        {/if}
+        <div class="flex flex-wrap items-center gap-2 pt-1">
+          {#if signingIn}
+            <button type="button" class={pill} onclick={() => void aiChatgptCancelLogin()}>Cancel sign-in</button>
+          {:else if chatgptAccount}
+            <button type="button" class="text-xs underline decoration-dotted hover:text-fg" onclick={() => void signOutChatgpt()}>Sign out</button>
+          {:else}
+            <button type="button" class={pill} disabled={!loaded} onclick={() => void signInChatgpt()}>Sign in with ChatGPT</button>
+          {/if}
+        </div>
+      </div>
     {:else}
       <div class="block space-y-1 text-xs font-medium text-muted">
         <div class="flex items-center justify-between gap-2">

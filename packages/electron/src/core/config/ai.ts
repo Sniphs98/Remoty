@@ -3,6 +3,7 @@ import { chmod, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path';
 import { parse, stringify } from 'smol-toml';
 
+import type { ChatgptLogin } from '../ai/chatgptAuth.js';
 import type { AiProviderId } from '../ai/types.js';
 import { readSecretCached } from '../secrets/onePassword.js';
 import { appConfigDir } from './platform.js';
@@ -17,14 +18,15 @@ import { decryptSecret, encryptSecret } from './secretField.js';
  * have an optional path to the program.
  */
 
-export const AI_PROVIDERS: readonly AiProviderId[] = ['anthropic', 'openai', 'claude-cli', 'codex-cli'];
+export const AI_PROVIDERS: readonly AiProviderId[] = ['anthropic', 'openai', 'claude-cli', 'codex-cli', 'chatgpt'];
 
 /** Empty: the CLI's own default, which follows the user's plan. */
 export const DEFAULT_MODELS: Record<AiProviderId, string> = {
   anthropic: 'claude-opus-5-5',
   openai: 'gpt-5.5',
   'claude-cli': '',
-  'codex-cli': ''
+  'codex-cli': '',
+  chatgpt: 'gpt-5.5'
 };
 
 export interface AiProviderSettings {
@@ -34,6 +36,8 @@ export interface AiProviderSettings {
   model?: string;
   /** CLI providers: where the program is, when it is not on PATH. */
   path?: string;
+  /** `chatgpt`: the sign-in (its refresh token kept encrypted). */
+  login?: ChatgptLogin;
 }
 
 export interface AiSettings {
@@ -46,6 +50,7 @@ export interface AiSettings {
   openai: AiProviderSettings;
   'claude-cli': AiProviderSettings;
   'codex-cli': AiProviderSettings;
+  chatgpt: AiProviderSettings;
 }
 
 export const DEFAULT_AI_SETTINGS: AiSettings = {
@@ -55,7 +60,8 @@ export const DEFAULT_AI_SETTINGS: AiSettings = {
   anthropic: {},
   openai: {},
   'claude-cli': {},
-  'codex-cli': {}
+  'codex-cli': {},
+  chatgpt: {}
 };
 
 function path(): string {
@@ -70,7 +76,21 @@ function providerFrom(raw: unknown): AiProviderSettings {
     apiKey: typeof r.apiKey === 'string' ? decryptSecret(r.apiKey, cipher) : undefined,
     apiKeyRef: typeof r.apiKeyRef === 'string' && r.apiKeyRef.trim() ? r.apiKeyRef : undefined,
     model: typeof r.model === 'string' && r.model.trim() ? r.model.trim() : undefined,
-    path: typeof r.path === 'string' && r.path.trim() ? r.path.trim() : undefined
+    path: typeof r.path === 'string' && r.path.trim() ? r.path.trim() : undefined,
+    login: loginFrom(r.login)
+  };
+}
+
+function loginFrom(raw: unknown): ChatgptLogin | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const r = raw as Record<string, unknown>;
+  const refreshToken = typeof r.refreshToken === 'string' ? decryptSecret(r.refreshToken, getSecretCipher()) : undefined;
+  if (!refreshToken || typeof r.accountId !== 'string' || !r.accountId) return undefined;
+  return {
+    refreshToken,
+    accountId: r.accountId,
+    ...(typeof r.email === 'string' ? { email: r.email } : {}),
+    ...(typeof r.plan === 'string' ? { plan: r.plan } : {})
   };
 }
 
@@ -80,6 +100,14 @@ function providerTo(s: AiProviderSettings): Record<string, unknown> {
   if (s.apiKeyRef) out.apiKeyRef = s.apiKeyRef;
   if (s.model) out.model = s.model;
   if (s.path) out.path = s.path;
+  if (s.login) {
+    out.login = {
+      refreshToken: encryptSecret(s.login.refreshToken, getSecretCipher()),
+      accountId: s.login.accountId,
+      ...(s.login.email ? { email: s.login.email } : {}),
+      ...(s.login.plan ? { plan: s.login.plan } : {})
+    };
+  }
   return out;
 }
 
@@ -98,7 +126,8 @@ export async function loadAiSettings(): Promise<AiSettings> {
     anthropic: providerFrom(raw.anthropic),
     openai: providerFrom(raw.openai),
     'claude-cli': providerFrom(raw['claude-cli']),
-    'codex-cli': providerFrom(raw['codex-cli'])
+    'codex-cli': providerFrom(raw['codex-cli']),
+    chatgpt: providerFrom(raw.chatgpt)
   };
 }
 
@@ -111,7 +140,8 @@ export async function saveAiSettings(settings: AiSettings): Promise<void> {
     anthropic: providerTo(settings.anthropic),
     openai: providerTo(settings.openai),
     'claude-cli': providerTo(settings['claude-cli']),
-    'codex-cli': providerTo(settings['codex-cli'])
+    'codex-cli': providerTo(settings['codex-cli']),
+    chatgpt: providerTo(settings.chatgpt)
   };
   const tmp = `${path()}.tmp`;
   await writeFile(tmp, stringify(out), 'utf-8');
@@ -132,7 +162,8 @@ const PROVIDER_NAMES: Record<AiProviderId, string> = {
   anthropic: 'Anthropic',
   openai: 'OpenAI',
   'claude-cli': 'Claude Code',
-  'codex-cli': 'Codex'
+  'codex-cli': 'Codex',
+  chatgpt: 'ChatGPT'
 };
 
 /** The provider's API key, from 1Password or as stored. */

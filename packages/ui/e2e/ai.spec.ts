@@ -246,7 +246,8 @@ test('Settings → AI: the key is saved and tested, never shown again', async ({
       anthropic: { key: 'sk-ant-secret', keyRef: '', model: '' },
       openai: { keyRef: '', model: '' },
       'claude-cli': { model: '', path: '' },
-      'codex-cli': { model: '', path: '' }
+      'codex-cli': { model: '', path: '' },
+      chatgpt: { model: '' }
     }
   ]);
 });
@@ -320,4 +321,68 @@ test('Settings → AI: a subscription through Claude Code shows whether it is si
   // OpenAI with a subscription is the Codex CLI.
   await page.getByRole('button', { name: 'OpenAI' }).click();
   await expect(status).toContainText('ChatGPT plan through the Codex CLI');
+});
+
+test('Settings → AI: signing in to ChatGPT directly is marked experimental and can be undone', async ({ page }) => {
+  await page.addInitScript(() => {
+    const win = window as unknown as Record<string, unknown>;
+    const calls: string[] = [];
+    const saved: unknown[] = [];
+    win.__calls = calls;
+    win.__aiSaved = saved;
+    const provider = (defaultModel: string) => ({ hasKey: false, defaultModel });
+    win.remoty = {
+      invoke: (channel: string, ...args: unknown[]) => {
+        calls.push(channel);
+        switch (channel) {
+          case 'list_hosts':
+            return Promise.resolve([]);
+          case 'ai_settings':
+            return Promise.resolve({
+              provider: 'anthropic',
+              replyToResult: true,
+              maxOutputLines: 200,
+              anthropic: provider('claude-opus-5-5'),
+              openai: provider('gpt-5.5'),
+              'claude-cli': provider(''),
+              'codex-cli': provider(''),
+              chatgpt: provider('gpt-5.5')
+            });
+          case 'ai_chatgpt_login':
+            return new Promise((resolve) => setTimeout(() => resolve({ email: 'me@example.com', plan: 'plus' }), 300));
+          case 'ai_save_settings':
+            saved.push(args[0]);
+            return Promise.resolve(null);
+          default:
+            return Promise.resolve(null);
+        }
+      },
+      on: () => () => {},
+      settings: { get: () => Promise.resolve(undefined), set: () => Promise.resolve() },
+      openExternal: () => Promise.resolve(),
+      homeDir: () => Promise.resolve('/home/user'),
+      getPathForFile: () => ''
+    };
+  });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'AI', exact: true }).click();
+
+  // Only OpenAI offers it.
+  await expect(page.getByRole('button', { name: 'ChatGPT login' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'OpenAI', exact: true }).click();
+  await page.getByRole('button', { name: 'ChatGPT login' }).click();
+
+  const box = page.getByTestId('ai-chatgpt-login');
+  await expect(box).toContainText('Experimental.');
+  await expect(box).toContainText('Not signed in.');
+  await box.getByRole('button', { name: 'Sign in with ChatGPT' }).click();
+  await expect(box).toContainText('Finish signing in in your browser');
+  await expect(box).toContainText('Signed in as me@example.com (plus)');
+  const [input] = (await page.evaluate(() => (window as unknown as { __aiSaved: unknown[] }).__aiSaved)) as { provider: string }[];
+  expect(input.provider).toBe('chatgpt');
+
+  await box.getByRole('button', { name: 'Sign out' }).click();
+  await expect(box).toContainText('Not signed in.');
+  expect(await page.evaluate(() => (window as unknown as { __calls: string[] }).__calls)).toContain('ai_chatgpt_logout');
 });

@@ -3,6 +3,7 @@
 
 import { commands, type Channel } from '$lib/bindings';
 import type {
+  AiChatgptAccountDto,
   AiCliProviderDto,
   AiCliStatusDto,
   AiCommandReportDto,
@@ -314,6 +315,9 @@ async function unwrap<T>(p: Promise<{ status: 'ok'; data: T } | { status: 'error
 export const aiSettings = (): Promise<AiSettingsDto> => unwrap(commands.aiSettings());
 export const aiSaveSettings = (input: AiSettingsInputDto): Promise<null> => unwrap(commands.aiSaveSettings(input));
 export const aiTest = (provider?: AiProviderDto): Promise<string> => unwrap(commands.aiTest(provider));
+export const aiChatgptLogin = (): Promise<AiChatgptAccountDto> => unwrap(commands.aiChatgptLogin());
+export const aiChatgptCancelLogin = (): Promise<null> => unwrap(commands.aiChatgptCancelLogin());
+export const aiChatgptLogout = (): Promise<null> => unwrap(commands.aiChatgptLogout());
 export const aiCliStatus = (provider: AiCliProviderDto): Promise<AiCliStatusDto> => unwrap(commands.aiCliStatus(provider));
 export const aiProblems = (hostKey?: string): Promise<AiProblemDto[]> => unwrap(commands.aiProblems(hostKey));
 export const aiProblem = (id: string): Promise<AiProblemDetailDto> => unwrap(commands.aiProblem(id));

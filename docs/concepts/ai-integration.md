@@ -1,7 +1,7 @@
 # Konzept: AI-Hilfe im Terminal
 
-> Status: 🚧 Phase 1 und Phase 2 (Abo über Claude Code und die Codex-CLI) umgesetzt (README → *AI helper*);
-> ChatGPT-Direktlogin und Phase 3–4 offen.
+> Status: 🚧 Phase 1 und Phase 2 (Abo über Claude Code und die Codex-CLI, ChatGPT-Direktlogin experimentell)
+> umgesetzt (README → *AI helper*); Phase 3–4 offen.
 
 ## Stand der Umsetzung (Phase 1)
 
@@ -56,7 +56,25 @@ Abweichungen vom Konzept unten (*Weg 2*):
 - **Mitstreamen:** Claude Code läuft mit `--output-format stream-json --include-partial-messages`; Remoty liest den
   Text der Antwort aus dem noch unvollständigen JSON und zeigt ihn, während Claude schreibt. `codex exec` gibt die
   Nachricht nur als Ganzes aus — dort erscheint die Antwort, wenn Codex fertig ist (bis dahin „Thinking…“).
-- **ChatGPT-Direktlogin (experimentell) noch nicht gebaut:** Die Codex-CLI deckt das ChatGPT-Abo offiziell ab.
+
+## Stand der Umsetzung (Phase 2: ChatGPT-Direktlogin, experimentell)
+
+*Settings → AI → OpenAI → Sign in with **ChatGPT login*** meldet sich ohne installierte CLI direkt beim ChatGPT-Abo an.
+In der Oberfläche als **experimentell** markiert: OpenAI dokumentiert den Weg nicht für andere Apps, er kann jederzeit
+aufhören zu funktionieren; *Subscription* über die Codex-CLI ist der unterstützte Weg zum selben Abo.
+
+- **Anmeldung** (`core/ai/chatgptAuth.ts`): OAuth mit PKCE wie die Codex-CLI — Client-ID der Codex-CLI, Browser auf
+  `auth.openai.com`, Rücksprung auf einen kurzlebigen Server auf `127.0.0.1:1455` (sonst 1457), Prüfung des `state`,
+  Abbruch nach fünf Minuten oder per *Cancel sign-in*.
+- **Tokens:** Der Refresh-Token liegt verschlüsselt in `ai.toml` (`[chatgpt.login]`, wie API-Keys), dazu Konto-ID,
+  E-Mail und Plan aus dem ID-Token. Der Access-Token bleibt nur im Speicher und wird fünf Minuten vor Ablauf erneuert
+  — einmal für alle gleichzeitigen Anfragen; ein neuer Refresh-Token wird sofort gespeichert. Lehnt ChatGPT einen
+  Token ab, erneuert Remoty ihn einmal und bittet sonst um eine neue Anmeldung.
+- **Anfragen** (`core/ai/chatgpt.ts`): derselbe Responses-API-Adapter wie mit API-Key (`openaiTurn`), nur an
+  `chatgpt.com/backend-api/codex` mit dem Token und `chatgpt-account-id`. Verlauf, Streaming und Befehlskarten
+  funktionieren also gleich.
+- **Nicht echt getestet:** In der Entwicklungsumgebung war `auth.openai.com` nicht erreichbar; geprüft ist der Ablauf
+  gegen nachgebaute Endpunkte (Anmeldung, Code-Tausch, Erneuern, Ablehnung, Nutzungslimit).
 
 
 ## Ziel
