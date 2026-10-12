@@ -8,7 +8,7 @@
   // uses, which OpenAI does not document for other apps). "Test connection" checks the
   // key and the model, or that the CLI or ChatGPT is signed in.
   import { onMount } from 'svelte';
-  import { Surface, Icon } from '$lib/theme';
+  import { Icon } from '$lib/theme';
   import OnePasswordToggle from './OnePasswordToggle.svelte';
   import OnePasswordCliHint from './OnePasswordCliHint.svelte';
   import Switch from './Switch.svelte';
@@ -204,21 +204,21 @@
     'inline-flex shrink-0 items-center gap-1.5 rounded-full border border-strong px-4 py-1.5 text-sm text-fg transition hover:bg-accent hover:text-accent-fg disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus';
   const seg =
     'rounded-lg px-3 py-1.5 text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus';
-  const segState = (on: boolean): string => (on ? 'bg-surface text-fg shadow-soft' : 'text-muted hover:text-fg');
+  const segState = (on: boolean): string => (on ? 'bg-accent text-accent-fg' : 'text-muted hover:text-fg');
 </script>
 
-<Surface class="p-5">
-  <p class="mb-4 text-xs text-muted">
+<div>
+  <p class="mb-5 text-xs text-muted">
     A chat next to each terminal (<span class="text-fg">Ctrl+Shift+A</span>) that proposes commands you run with one
     click; their output goes back to the AI by itself. It never runs anything on its own. Uses your own API key —
     each request is billed by the provider — or your Claude or ChatGPT subscription, through Claude Code or the Codex
     CLI installed on this computer.
   </p>
 
-  <div class="space-y-3">
-    <div class="flex items-center justify-between gap-4">
+  <div class="space-y-4">
+    <div>
       <p class="text-sm">Provider</p>
-      <div class="flex gap-1 rounded-xl bg-surface-inset p-1">
+      <div class="mt-2 inline-flex gap-1 rounded-xl bg-surface-inset p-1">
         {#each FAMILIES as f (f.id)}
           <button
             type="button"
@@ -232,9 +232,9 @@
       </div>
     </div>
 
-    <div class="flex items-center justify-between gap-4">
+    <div>
       <p class="text-sm">Sign in with</p>
-      <div class="flex gap-1 rounded-xl bg-surface-inset p-1">
+      <div class="mt-2 inline-flex flex-wrap gap-1 rounded-xl bg-surface-inset p-1">
         {#each ACCESS.filter((a) => PROVIDER[family][a.id]) as a (a.id)}
           <button type="button" class="{seg} {segState(access === a.id)}" aria-pressed={access === a.id} onclick={() => choose(PROVIDER[family][a.id]!)}>
             {a.label}
@@ -316,7 +316,7 @@
       </div>
     {:else}
       <div class="block space-y-1 text-xs font-medium text-muted">
-        <div class="flex items-center justify-between gap-2">
+        <div class="flex items-center gap-3">
           <label for="ai-key">{current.label} API key</label>
           <OnePasswordToggle bind:on={forms[provider].from1P} field="API key" />
         </div>
@@ -352,14 +352,14 @@
       />
     </label>
 
-    <div class="flex items-center justify-between gap-4 pt-1">
+    <div class="flex items-start gap-3 pt-1">
+      <span class="mt-0.5"><Switch bind:checked={replyToResult} label="Answer right after a command ran" /></span>
       <div class="min-w-0">
         <p class="text-sm">Answer right after a command ran</p>
         <p class="text-xs text-muted">
           Off: the output waits on the card until you write something or press Continue.
         </p>
       </div>
-      <Switch bind:checked={replyToResult} label="Answer right after a command ran" />
     </div>
 
     <div class="flex flex-wrap items-center gap-2 pt-1">
@@ -386,4 +386,4 @@
       <p class="text-xs text-status-crit">{status.text}</p>
     {/if}
   </div>
-</Surface>
+</div>
