@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import OpenAI from 'openai';
 import type { FunctionTool, ResponseInputItem, ResponseOutputItem } from 'openai/resources/responses/responses';
 
@@ -44,6 +46,88 @@ function replayable(items: ResponseOutputItem[]): ResponseInputItem[] {
   return out;
 }
 
+/** The end of the JSON object that starts at `start` (a `{`), or -1. */
+function objectEnd(text: string, start: number): number {
+  let depth = 0;
+  let inString = false;
+  for (let i = start; i < text.length; i++) {
+    const c = text[i];
+    if (inString) {
+      if (c === '\\') i++;
+      else if (c === '"') inString = false;
+    } else if (c === '"') inString = true;
+    else if (c === '{') depth++;
+    else if (c === '}' && --depth === 0) return i + 1;
+  }
+  return -1;
+}
+
+/**
+ * Commands the model wrote into its text as `propose_command` arguments instead of
+ * calling the tool — GPT models through ChatGPT's endpoint sometimes do. Returns the
+ * text without them (and without a code fence left empty around one) and their inputs.
+ */
+export function leakedCalls(text: string): { text: string; inputs: Record<string, unknown>[] } {
+  const inputs: Record<string, unknown>[] = [];
+  let rest = '';
+  let i = 0;
+  for (const match of text.matchAll(/\{\s*"command"\s*:/g)) {
+    if (match.index < i) continue;
+    const end = objectEnd(text, match.index);
+    if (end < 0) break;
+    let input: unknown;
+    try {
+      input = JSON.parse(text.slice(match.index, end));
+    } catch {
+      continue;
+    }
+    if (typeof (input as { command?: unknown }).command !== 'string') continue;
+    inputs.push(input as Record<string, unknown>);
+    rest += text.slice(i, match.index);
+    i = end;
+  }
+  if (inputs.length === 0) return { text, inputs };
+  rest += text.slice(i);
+  return { text: rest.replace(/```[a-z]*\s*```/g, '').replace(/\n{3,}/g, '\n\n').trim(), inputs };
+}
+
+/** Moves commands leaked into message text (`leakedCalls`) into function calls of
+ *  their own, so they become cards and their results have a call to answer. */
+function recoverLeakedCalls(output: ResponseOutputItem[]): ResponseOutputItem[] {
+  if (output.some((item) => item.type === 'function_call')) return output;
+  const recovered: ResponseOutputItem[] = [];
+  const calls: ResponseOutputItem[] = [];
+  for (const item of output) {
+    if (item.type !== 'message') {
+      recovered.push(item);
+      continue;
+    }
+    const content = item.content.map((c) => {
+      if (c.type !== 'output_text') return c;
+      const leaked = leakedCalls(c.text);
+      for (const input of leaked.inputs) {
+        calls.push({
+          type: 'function_call',
+          call_id: `call_${randomUUID().replace(/-/g, '')}`,
+          name: PROPOSE_COMMAND,
+          arguments: JSON.stringify(input),
+          status: 'completed'
+        });
+      }
+      return leaked.inputs.length ? { ...c, text: leaked.text } : c;
+    });
+    if (content.some((c) => c.type !== 'output_text' || c.text)) recovered.push({ ...item, content });
+  }
+  return [...recovered, ...calls];
+}
+
+function outputText(output: ResponseOutputItem[]): string {
+  return output
+    .flatMap((item) => (item.type === 'message' ? item.content : []))
+    .map((c) => (c.type === 'output_text' ? c.text : ''))
+    .join('');
+}
+
 /** The problem as Responses API input. `native` is the provider whose earlier output is
  *  replayed as is (reasoning included); another provider's turns become text. */
 export function openaiInput(req: Pick<TurnRequest, 'entries' | 'commands'>, native: 'openai' | 'chatgpt' = 'openai'): ResponseInputItem[] {
@@ -77,6 +161,8 @@ export async function openaiTurn(client: OpenAI, req: TurnRequest, native: 'open
       instructions: req.system,
       input: openaiInput(req, native),
       tools: [TOOL],
+      tool_choice: 'auto',
+      parallel_tool_calls: true,
       store: false,
       include: ['reasoning.encrypted_content']
     },
@@ -84,9 +170,10 @@ export async function openaiTurn(client: OpenAI, req: TurnRequest, native: 'open
   );
   stream.on('response.output_text.delta', (event) => req.onText(event.delta));
   const response = await stream.finalResponse();
+  const output = response.status === 'incomplete' ? response.output : recoverLeakedCalls(response.output);
 
   const calls: ProposedCall[] = [];
-  for (const item of response.output) {
+  for (const item of output) {
     if (item.type !== 'function_call') continue;
     let input: unknown;
     try {
@@ -105,10 +192,10 @@ export async function openaiTurn(client: OpenAI, req: TurnRequest, native: 'open
       : undefined;
   // An answer cut off midway may have cut a call off too: none are shown or kept then,
   // since each kept call needs an answer on the next request.
-  const kept = notice ? response.output.filter((item) => item.type !== 'function_call') : response.output;
+  const kept = notice ? output.filter((item) => item.type !== 'function_call') : output;
   return {
     payload: replayable(kept),
-    text: response.output_text ?? '',
+    text: outputText(output),
     calls: notice ? [] : calls,
     notice,
     usage: { input: response.usage?.input_tokens ?? 0, output: response.usage?.output_tokens ?? 0 }
