@@ -58,6 +58,19 @@ describe('deriveCard — health state', () => {
     expect(card.offline).toBe(true);
   });
 
+  it('a host waiting for 1Password is locked, not offline', () => {
+    const card = deriveCard(host(), { kind: 'locked', message: 'waiting for 1Password' }, undefined, undefined);
+    expect(card.locked).toBe(true);
+    expect(card.offline).toBe(false);
+    expect(card.overall).toBe('unknown');
+  });
+
+  it('a reachability host waiting for 1Password says so', () => {
+    const card = deriveCard(tcpHost(), { kind: 'locked', message: 'waiting for 1Password' }, undefined, undefined);
+    expect(card.locked).toBe(true);
+    expect(card.reachability).toBe('waiting for 1Password');
+  });
+
   it('a failed host keeps showing its last metrics rather than an offline state', () => {
     const card = deriveCard(host(), { kind: 'failed', message: 'refused' }, metrics({ cpuPercent: 40 }), undefined);
     expect(card.overall).toBe('off');

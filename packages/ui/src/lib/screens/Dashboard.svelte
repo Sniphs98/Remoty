@@ -25,6 +25,7 @@
     reloadHosts,
     startKeySetup,
     refreshMetrics,
+    unlockHost,
     terminalProfiles,
     exportSshHosts,
     previewSshHostsImport
@@ -194,6 +195,16 @@
       lastError.set(message(e));
     }
     setTimeout(() => (refreshing = false), 500);
+  }
+
+  // A host waiting on 1Password reads its secrets only when asked: this brings up the
+  // 1Password prompt, and the card connects once it's answered.
+  async function unlock(hostName: string): Promise<void> {
+    try {
+      await unlockHost(hostName);
+    } catch (e) {
+      lastError.set(message(e));
+    }
   }
 
   // Dashboard hotkeys (tech-gui.md §2): `r` refreshes metrics. This listener only exists
@@ -428,6 +439,17 @@
   {/if}
 </section>
 
+{#snippet unlockButton(hostName: string)}
+  <button
+    type="button"
+    class="{pill} mt-1"
+    title="Read this host's secrets from 1Password now"
+    onclick={() => unlock(hostName)}
+  >
+    Unlock with 1Password
+  </button>
+{/snippet}
+
 {#snippet sectionHeader(key: string, title: string, count: number, folder: string | null)}
   <div class="mb-3 flex items-center gap-1">
   <button
@@ -577,6 +599,7 @@
             style="color: {statusToken(card.overall)};"
           >
             {card.reachability}{card.host.monitorPort ? ` · port ${card.host.monitorPort}` : ''}
+            {#if card.locked}{@render unlockButton(card.host.name)}{/if}
           </div>
         {:else}
           <!-- Offline cards keep the same layout, with empty bars and what the cache
@@ -604,7 +627,19 @@
             {/each}
           </div>
 
-          {#if card.offline}
+          {#if card.locked}
+            <!-- Waiting for 1Password: the dashboard never brings up a 1Password prompt on
+                 its own (each reconnect would). Unlocking here, or opening a terminal to
+                 the host, reads the secret once. -->
+            <div
+              class="flex flex-1 flex-col items-center justify-center gap-1 rounded-lg bg-surface-inset px-3 py-3 text-center text-xs"
+              data-testid="locked-panel"
+            >
+              <span class="font-medium text-faint">waiting for 1Password</span>
+              <span class="text-muted">not polled until unlocked or a terminal is opened</span>
+              {@render unlockButton(card.host.name)}
+            </div>
+          {:else if card.offline}
             <!-- The offline panel fills the space the live info would, under the bars. -->
             <div
               class="flex flex-1 flex-col items-center justify-center gap-1 rounded-lg bg-surface-inset px-3 py-3 text-center text-xs"

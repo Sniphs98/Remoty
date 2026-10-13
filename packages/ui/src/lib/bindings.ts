@@ -118,6 +118,9 @@ export const commands = {
   async refreshMetrics(): Promise<Result<null, CommandError>> {
     return call('refresh_metrics');
   },
+  async unlockHost(hostName: string): Promise<Result<null, CommandError>> {
+    return call('unlock_host', hostName);
+  },
   async checkUpdate(): Promise<Result<UpdateInfoDto | null, CommandError>> {
     return call('check_update');
   },
@@ -456,7 +459,9 @@ export type ConnectionStatusDto =
   | { kind: 'unknown' }
   | { kind: 'connecting' }
   | { kind: 'connected' }
-  | { kind: 'failed'; message: string };
+  | { kind: 'failed'; message: string }
+  /** Waiting for 1Password — the dashboard never prompts on its own; `unlockHost` asks. */
+  | { kind: 'locked'; message: string };
 /** A background error surfaced to the user. */
 export type Error = { message: string };
 /** A file or directory in an SFTP panel listing. */

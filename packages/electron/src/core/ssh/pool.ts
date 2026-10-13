@@ -15,6 +15,7 @@ import {
 } from './metrics.js';
 import { resolveHostAddress, SshSession } from './session.js';
 import { quickScan } from './discovery.js';
+import { OnePasswordLockedError, onSecretRead, withoutOnePasswordPrompt } from '../secrets/onePassword.js';
 import type { CoreEvent, Metrics } from '../../event.js';
 
 /**
@@ -157,6 +158,29 @@ export async function waitBackoff(delayMs: number, signal: AbortSignal): Promise
   await sleep(delayMs, signal);
 }
 
+/**
+ * Waits while a host's secrets are still in 1Password: until the user unlocks it from
+ * its card (`unlock` fires — the next attempt may prompt), or a secret is read some
+ * other way, say by opening a terminal (the next attempt quietly tries again).
+ * Returns whether a prompt is allowed for the next attempt.
+ */
+export async function waitForUnlock(unlock: RefreshChannel, signal: AbortSignal): Promise<boolean> {
+  let stop: (() => void) | undefined;
+  const secretRead = new Promise<false>((resolve) => {
+    stop = onSecretRead(() => resolve(false));
+  });
+  try {
+    return await Promise.race([unlock.wait(signal).then(() => !signal.aborted), secretRead]);
+  } finally {
+    stop?.();
+  }
+}
+
+/** Runs one poller attempt, prompting 1Password only when the user asked for it. */
+function maybeQuiet<T>(allowPrompt: boolean, work: () => Promise<T>): Promise<T> {
+  return allowPrompt ? work() : withoutOnePasswordPrompt(work);
+}
+
 // ---------------------------------------------------------------------------
 // PollManager
 // ---------------------------------------------------------------------------
@@ -164,6 +188,7 @@ export async function waitBackoff(delayMs: number, signal: AbortSignal): Promise
 export class PollManager {
   private readonly controllers = new Map<string, AbortController>();
   private readonly refreshChannels = new Map<string, RefreshChannel>();
+  private readonly unlockChannels = new Map<string, RefreshChannel>();
   private readonly tasks: Promise<void>[] = [];
 
   /** Spawns one poller loop per host. */
@@ -171,9 +196,11 @@ export class PollManager {
     for (const host of hosts) {
       const controller = new AbortController();
       const refresh = new RefreshChannel();
+      const unlock = new RefreshChannel();
       this.controllers.set(host.name, controller);
       this.refreshChannels.set(host.name, refresh);
-      this.tasks.push(runHostPoller(host, emit, pollIntervalMs, refresh, controller.signal));
+      this.unlockChannels.set(host.name, unlock);
+      this.tasks.push(runHostPoller(host, emit, pollIntervalMs, refresh, controller.signal, unlock));
     }
   }
 
@@ -182,11 +209,18 @@ export class PollManager {
     for (const refresh of this.refreshChannels.values()) refresh.fire();
   }
 
+  /** Lets a host waiting on 1Password ask for its secrets now — the one time the
+   *  dashboard brings up a 1Password prompt, because the user clicked for it. */
+  unlock(hostName: string): void {
+    this.unlockChannels.get(hostName)?.fire();
+  }
+
   /** Aborts every poller loop. SSH sessions are closed inside the loops. */
   shutdown(): void {
     for (const controller of this.controllers.values()) controller.abort();
     this.controllers.clear();
     this.refreshChannels.clear();
+    this.unlockChannels.clear();
   }
 }
 
@@ -199,10 +233,11 @@ async function runHostPoller(
   emit: (event: CoreEvent) => void,
   pollIntervalMs: number,
   refresh: RefreshChannel,
-  signal: AbortSignal
+  signal: AbortSignal,
+  unlock: RefreshChannel = new RefreshChannel()
 ): Promise<void> {
-  if (host.monitoring === 'tcp_port') await runTcpPoller(host, emit, pollIntervalMs, refresh, signal);
-  else await runSshPoller(host, emit, pollIntervalMs, refresh, signal);
+  if (host.monitoring === 'tcp_port') await runTcpPoller(host, emit, pollIntervalMs, refresh, signal, unlock);
+  else await runSshPoller(host, emit, pollIntervalMs, refresh, signal, unlock);
 }
 
 /** How long a reachability probe waits for the port to answer. */
@@ -231,7 +266,8 @@ async function runTcpPoller(
   emit: (event: CoreEvent) => void,
   pollIntervalMs: number,
   refresh: RefreshChannel,
-  signal: AbortSignal
+  signal: AbortSignal,
+  unlock: RefreshChannel
 ): Promise<void> {
   // A bare TCP dial cannot traverse a bastion, and probing the target
   // address direct would silently report on whatever else answers it.
@@ -244,24 +280,34 @@ async function runTcpPoller(
   const probePort = host.monitorPort !== undefined && host.monitorPort !== 0 ? host.monitorPort : undefined;
   const backoff = new BackoffState();
   let last: ConnectionStatusResult | undefined;
+  let allowPrompt = false;
 
   while (!signal.aborted) {
     if (last === undefined) {
       emit({ type: 'hostStatusChanged', hostName: host.name, status: { kind: 'connecting' } });
     }
 
-    const status = await resolveHostAddress(host).then(
-      (resolved) => tcpProbe(resolved.hostname, probePort ?? resolved.port),
-      (err: Error): ConnectionStatusResult => ({ kind: 'failed', message: err.message })
-    );
+    let resolved: Host;
+    try {
+      resolved = await maybeQuiet(allowPrompt, () => resolveHostAddress(host));
+    } catch (e) {
+      if (e instanceof OnePasswordLockedError) {
+        emit({ type: 'hostStatusChanged', hostName: host.name, status: { kind: 'locked', message: e.message } });
+        last = undefined;
+        allowPrompt = await waitForUnlock(unlock, signal);
+        continue;
+      }
+      last = reportTcp(emit, host, last, { kind: 'failed', message: (e as Error).message });
+      allowPrompt = false;
+      await waitBackoff(Math.max(backoff.nextDelayMs(), pollIntervalMs), signal);
+      continue;
+    }
+    allowPrompt = false;
+
+    const status = await tcpProbe(resolved.hostname, probePort ?? resolved.port);
     const reachable = status.kind === 'connected';
 
-    // Only on a change: re-announcing every cycle flickers the card between
-    // reachable and checking.
-    if (last === undefined || last.kind !== status.kind || (status.kind === 'failed' && last.kind === 'failed' && last.message !== status.message)) {
-      emit({ type: 'hostStatusChanged', hostName: host.name, status });
-      last = status;
-    }
+    last = reportTcp(emit, host, last, status);
 
     if (reachable) {
       backoff.reset();
@@ -274,25 +320,51 @@ async function runTcpPoller(
   }
 }
 
+/** Announces a probe result — only on a change: re-announcing every cycle flickers
+ *  the card between reachable and checking. Returns the result now announced. */
+function reportTcp(
+  emit: (event: CoreEvent) => void,
+  host: Host,
+  last: ConnectionStatusResult | undefined,
+  status: ConnectionStatusResult
+): ConnectionStatusResult {
+  if (last === undefined || last.kind !== status.kind || (status.kind === 'failed' && last.kind === 'failed' && last.message !== status.message)) {
+    emit({ type: 'hostStatusChanged', hostName: host.name, status });
+  }
+  return status;
+}
+
 async function runSshPoller(
   host: Host,
   emit: (event: CoreEvent) => void,
   pollIntervalMs: number,
   refresh: RefreshChannel,
-  signal: AbortSignal
+  signal: AbortSignal,
+  unlock: RefreshChannel
 ): Promise<void> {
   const backoff = new BackoffState();
   let session: SshSession | undefined;
   let discoveryDone = false;
+  let allowPrompt = false;
 
   while (!signal.aborted) {
     if (session === undefined) {
       emit({ type: 'hostStatusChanged', hostName: host.name, status: { kind: 'connecting' } });
       try {
-        session = await SshSession.shared(host);
+        // Never a 1Password prompt of its own: a host whose password (or address)
+        // is still in 1Password waits on the card until it is unlocked there or a
+        // terminal to it read the secret.
+        session = await maybeQuiet(allowPrompt, () => SshSession.shared(host));
+        allowPrompt = false;
         emit({ type: 'hostStatusChanged', hostName: host.name, status: { kind: 'connected' } });
         discoveryDone = false;
       } catch (e) {
+        allowPrompt = false;
+        if (e instanceof OnePasswordLockedError) {
+          emit({ type: 'hostStatusChanged', hostName: host.name, status: { kind: 'locked', message: e.message } });
+          allowPrompt = await waitForUnlock(unlock, signal);
+          continue;
+        }
         emit({ type: 'hostStatusChanged', hostName: host.name, status: { kind: 'failed', message: (e as Error).message } });
         await waitBackoff(backoff.nextDelayMs(), signal);
         continue;

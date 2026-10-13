@@ -154,6 +154,11 @@ export class GuiState {
     this.pollManager.refreshAll();
   }
 
+  /** Lets `hostName`'s poller ask 1Password for its secrets (the user clicked for it). */
+  unlockHost(hostName: string): void {
+    this.pollManager.unlock(hostName);
+  }
+
   /** Closes every poller, terminal, and SFTP session. Called on app quit. */
   shutdown(): void {
     this.pollManager.shutdown();

@@ -1,8 +1,24 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { cliVersion, installHint, isSecretReference, normalizeReference, opLocations, readSecret, setOpRunner } from './onePassword.js';
+import {
+  clearSecretCache,
+  cliVersion,
+  installHint,
+  isSecretReference,
+  normalizeReference,
+  onSecretRead,
+  OnePasswordLockedError,
+  opLocations,
+  readSecret,
+  readSecretCached,
+  setOpRunner,
+  withoutOnePasswordPrompt
+} from './onePassword.js';
 
-afterEach(() => setOpRunner(undefined));
+afterEach(() => {
+  setOpRunner(undefined);
+  clearSecretCache();
+});
 
 describe('isSecretReference', () => {
   it('accepts vault/item/field and vault/item/section/field', () => {
@@ -74,6 +90,35 @@ describe('readSecret', () => {
   it('refuses an empty value rather than trying an empty password', async () => {
     setOpRunner(async () => ({ stdout: '', stderr: '' }));
     await expect(readSecret('op://a/b/c')).rejects.toThrow('empty value');
+  });
+});
+
+describe('withoutOnePasswordPrompt', () => {
+  it('never runs op for a secret not read yet', async () => {
+    let calls = 0;
+    setOpRunner(async () => {
+      calls++;
+      return { stdout: 'pw', stderr: '' };
+    });
+    await expect(withoutOnePasswordPrompt(() => readSecretCached('op://V/i/password'))).rejects.toBeInstanceOf(OnePasswordLockedError);
+    expect(calls).toBe(0);
+  });
+
+  it('uses a secret already read', async () => {
+    setOpRunner(async () => ({ stdout: 'pw', stderr: '' }));
+    await readSecretCached('op://V/i/password');
+    setOpRunner(async () => Promise.reject(new Error('op must not run')));
+    await expect(withoutOnePasswordPrompt(() => readSecretCached('op://V/i/password'))).resolves.toBe('pw');
+  });
+
+  it('tells listeners when a secret was read', async () => {
+    setOpRunner(async () => ({ stdout: 'pw', stderr: '' }));
+    let heard = 0;
+    const stop = onSecretRead(() => heard++);
+    await readSecretCached('op://V/i/password');
+    await readSecretCached('op://V/i/password'); // from memory: nothing new read
+    stop();
+    expect(heard).toBe(1);
   });
 });
 

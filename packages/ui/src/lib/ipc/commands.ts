@@ -252,6 +252,13 @@ export async function refreshMetrics(): Promise<void> {
   if (res.status === 'error') throw new Error(res.error.message);
 }
 
+/** Let a host waiting on 1Password read its secrets now — brings up the 1Password
+ *  prompt the dashboard otherwise never shows on its own. */
+export async function unlockHost(hostName: string): Promise<void> {
+  const res = await commands.unlockHost(hostName);
+  if (res.status === 'error') throw new Error(res.error.message);
+}
+
 /** Check GitHub for a newer release; `null` means up to date (tech-gui.md §4.2). */
 export async function checkUpdate(): Promise<UpdateInfoDto | null> {
   const res = await commands.checkUpdate();

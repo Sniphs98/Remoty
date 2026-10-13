@@ -12,7 +12,14 @@ import { checkKnownHosts, hostPattern, learnKnownHost } from './knownHosts.js';
 import { connectReporter, reportConnectStage, withoutConnectProgress } from './connectProgress.js';
 import { resolveChain, jumpValue } from './jump.js';
 import { loadAllHosts } from '../config/hosts.js';
-import { isSecretReference, readSecretCached, resolvePort, resolveReference } from '../secrets/onePassword.js';
+import {
+  isSecretReference,
+  onePasswordPromptAllowed,
+  OnePasswordLockedError,
+  readSecretCached,
+  resolvePort,
+  resolveReference
+} from '../secrets/onePassword.js';
 
 /**
  * SSH session management via `ssh2`. Ported from
@@ -141,7 +148,15 @@ export class SshSession {
   /** A session over the connection shared by everything else talking to the
    *  same host (see `connectionPool.ts`), dialled only if there is none yet. */
   static async shared(host: Host): Promise<SshSession> {
-    const lease = await sharedConnections.acquire(host);
+    let lease: Lease<SshConnection>;
+    try {
+      lease = await sharedConnections.acquire(host);
+    } catch (e) {
+      // Joined a dial started where 1Password may not prompt (the dashboard's
+      // poller) — that failure isn't ours: dial again, prompting this time.
+      if (!(e instanceof OnePasswordLockedError) || !onePasswordPromptAllowed()) throw e;
+      lease = await sharedConnections.acquire(host);
+    }
     return new SshSession(lease.connection, lease, host);
   }
 
@@ -414,6 +429,7 @@ async function connectAndAuth(host: Host): Promise<SshConnection> {
       jumps.push(client);
     } catch (e) {
       for (const j of jumps) j.end();
+      if (e instanceof OnePasswordLockedError) throw e;
       throw new SshAuthError(`ProxyJump via '${hop.name}' failed: ${(e as Error).message}`);
     }
   }
@@ -423,6 +439,7 @@ async function connectAndAuth(host: Host): Promise<SshConnection> {
     target = jumps.length === 0 ? await connectDirect(host) : await connectTunnelled(jumps[jumps.length - 1], host);
   } catch (e) {
     for (const j of jumps) j.end();
+    if (e instanceof OnePasswordLockedError) throw e;
     const via = chain.length > 0 ? chain[chain.length - 1].name : undefined;
     throw new SshAuthError(via !== undefined ? `connecting via '${via}' failed: ${(e as Error).message}` : (e as Error).message);
   }
@@ -479,7 +496,11 @@ async function hostPassword(host: Host): Promise<string | undefined> {
  *  left out; an unparseable (e.g. passphrase-protected) one is skipped by
  *  `ssh2` itself. A 1Password reference that can't be read drops the password
  *  and says why in `problems`, so the keys still get their turn. */
-async function authMethods(host: Host, problems: string[]): Promise<AnyAuthMethod[]> {
+async function authMethods(
+  host: Host,
+  problems: string[],
+  locked: OnePasswordLockedError[]
+): Promise<AnyAuthMethod[]> {
   const username = host.user;
   const methods: AnyAuthMethod[] = [];
 
@@ -495,6 +516,7 @@ async function authMethods(host: Host, problems: string[]): Promise<AnyAuthMetho
   try {
     password = await hostPassword(host);
   } catch (e) {
+    if (e instanceof OnePasswordLockedError) locked.push(e);
     problems.push((e as Error).message);
   }
   if (password !== undefined) methods.push({ type: 'password', username, password });
@@ -537,7 +559,8 @@ async function authenticate(host: Host, extra: Partial<ConnectConfig>): Promise<
   };
 
   const problems: string[] = [];
-  const methods = await authMethods(host, problems);
+  const locked: OnePasswordLockedError[] = [];
+  const methods = await authMethods(host, problems, locked);
   report({ stage: 'reach' });
   if (methods.length > 0) {
     const attempt = await tryConnect({ ...base, authHandler: methods });
@@ -557,6 +580,9 @@ async function authenticate(host: Host, extra: Partial<ConnectConfig>): Promise<
     }
   }
 
+  // The keys didn't do it and the password is still in 1Password: not a sign-in
+  // failure, the password just wasn't read (no prompt allowed here).
+  if (locked.length > 0) throw locked[0];
   const why = problems.length > 0 ? ` (${problems.join('; ')})` : '';
   throw new SshAuthError(`SSH authentication failed for ${host.name}${why}`);
 }

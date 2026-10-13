@@ -424,7 +424,9 @@ export function remoteDesktopConnectionFromInputDto(input: RemoteDesktopConnecti
 // Connection status / metrics / services (Phase 2)
 // ---------------------------------------------------------------------------
 
-export type ConnectionStatusDto = { kind: 'unknown' } | { kind: 'connecting' } | { kind: 'connected' } | { kind: 'failed'; message: string };
+export type ConnectionStatusDto = { kind: 'unknown' } | { kind: 'connecting' } | { kind: 'connected' } | { kind: 'failed'; message: string }
+  /** Waiting for 1Password: the dashboard doesn't prompt on its own (see `PollManager.unlock`). */
+  | { kind: 'locked'; message: string };
 
 export function connectionStatusToDto(status: ConnectionStatus): ConnectionStatusDto {
   return status;
