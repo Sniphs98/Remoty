@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -84,6 +85,14 @@ export function setOpRunner(next: OpRunner | undefined): void {
 
 export class OnePasswordError extends Error {}
 
+/** A secret that would have to be read from 1Password, asked for where no prompt may
+ *  be shown (`withoutOnePasswordPrompt`) and not in memory from an earlier read. */
+export class OnePasswordLockedError extends OnePasswordError {
+  constructor(reference: string) {
+    super(`waiting for 1Password: ${reference} has not been read yet`);
+  }
+}
+
 /** Resolves a secret reference to its value through the 1Password CLI. */
 export async function readSecret(reference: string): Promise<string> {
   const ref = normalizeReference(reference);
@@ -121,9 +130,40 @@ export async function readSecretCached(reference: string): Promise<string> {
   const ref = normalizeReference(reference);
   const cached = secretCache.get(ref);
   if (cached && cached.expires > Date.now()) return cached.value;
+  if (noPrompt.getStore() === true) throw new OnePasswordLockedError(ref);
   const value = await readSecret(ref);
   secretCache.set(ref, { value, expires: Date.now() + SECRET_CACHE_MS });
+  for (const listener of [...secretListeners]) listener();
   return value;
+}
+
+/** Set inside `withoutOnePasswordPrompt`. */
+const noPrompt = new AsyncLocalStorage<boolean>();
+
+/**
+ * Runs `work` so that it never asks 1Password: a secret already in memory is used,
+ * any other fails with `OnePasswordLockedError` instead of running `op` — for work
+ * nobody is waiting on, like the dashboard's background polling, which would
+ * otherwise bring up a Windows Hello / Touch ID prompt out of nowhere on every
+ * reconnect.
+ */
+export function withoutOnePasswordPrompt<T>(work: () => Promise<T>): Promise<T> {
+  return noPrompt.run(true, work);
+}
+
+/** Whether a 1Password prompt may be shown here (outside `withoutOnePasswordPrompt`). */
+export function onePasswordPromptAllowed(): boolean {
+  return noPrompt.getStore() !== true;
+}
+
+const secretListeners = new Set<() => void>();
+
+/** Calls `listener` whenever a secret has been read from 1Password (a terminal was
+ *  opened, say), so work waiting on `OnePasswordLockedError` can try again. Returns
+ *  the unsubscribe. */
+export function onSecretRead(listener: () => void): () => void {
+  secretListeners.add(listener);
+  return () => secretListeners.delete(listener);
 }
 
 /** A field that may hold either its value or a 1Password reference to it (a host's

@@ -13,8 +13,10 @@ import {
   splitMetricSections,
   topProcessesCommand,
   waitBackoff,
+  waitForUnlock,
   waitOrRefresh
 } from './pool.js';
+import { clearSecretCache, readSecretCached, setOpRunner } from '../secrets/onePassword.js';
 
 // Ported from crates/omnyssh-core/src/ssh/pool.rs's #[cfg(test)] module.
 
@@ -164,5 +166,33 @@ describe('splitMetricSections', () => {
     const s = splitMetricSections(['motd', '@@remoty-metric:bogus', 'noise', '@@remoty-metric:uptime', 'up 3 days'].join('\n'));
     expect(s.uptime).toBe('up 3 days\n');
     expect(Object.values(s).join('')).not.toContain('noise');
+  });
+});
+
+describe('waitForUnlock', () => {
+  afterEach(() => {
+    setOpRunner(undefined);
+    clearSecretCache();
+  });
+
+  it('allows a prompt when the user unlocks', async () => {
+    const unlock = new RefreshChannel();
+    const waiting = waitForUnlock(unlock, new AbortController().signal);
+    unlock.fire();
+    await expect(waiting).resolves.toBe(true);
+  });
+
+  it('retries quietly when a secret was read elsewhere', async () => {
+    setOpRunner(async () => ({ stdout: 'pw', stderr: '' }));
+    const waiting = waitForUnlock(new RefreshChannel(), new AbortController().signal);
+    await readSecretCached('op://V/i/password');
+    await expect(waiting).resolves.toBe(false);
+  });
+
+  it('gives up on abort', async () => {
+    const controller = new AbortController();
+    const waiting = waitForUnlock(new RefreshChannel(), controller.signal);
+    controller.abort();
+    await expect(waiting).resolves.toBe(false);
   });
 });

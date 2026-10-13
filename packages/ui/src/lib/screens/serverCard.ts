@@ -32,7 +32,7 @@ export type MetricRow = { label: string; percent: number | null; status: Status 
 export type CardService = { kind: ServiceKindDto; name: string; detail: string };
 
 /** Reachability of a `tcpPort` host; `undefined` for an SSH-monitored one. */
-type Reachability = 'reachable' | 'unreachable' | 'checking';
+type Reachability = 'reachable' | 'unreachable' | 'checking' | 'waiting for 1Password';
 
 export interface ServerCard {
   host: HostDto;
@@ -42,6 +42,9 @@ export interface ServerCard {
   offline: boolean;
   /** Set only for a reachability host, which has no metrics to show. */
   reachability?: Reachability;
+  /** Its password (or address) is still in 1Password: the dashboard doesn't prompt
+   *  on its own, the card offers to unlock instead. */
+  locked: boolean;
   metricRows: MetricRow[];
   uptime?: string;
   osInfo?: string;
@@ -109,7 +112,9 @@ export function deriveCard(
       host,
       overall: kind === 'connected' ? 'ok' : kind === 'failed' ? 'off' : 'unknown',
       offline: kind === 'failed',
-      reachability: kind === 'connected' ? 'reachable' : kind === 'failed' ? 'unreachable' : 'checking',
+      reachability:
+        kind === 'connected' ? 'reachable' : kind === 'failed' ? 'unreachable' : kind === 'locked' ? 'waiting for 1Password' : 'checking',
+      locked: kind === 'locked',
       metricRows: [],
       topProcesses: [],
       detectedServices: []
@@ -127,6 +132,7 @@ export function deriveCard(
   // Mirrors the TUI's `is_offline` (crates/omnyssh/src/ui/card.rs): down/unprobed with
   // no metrics sample at all reads as offline; any sample — even os-info-only from
   // discovery — still renders. Connecting stays live.
+  const locked = kind === 'locked';
   const offline = (kind === undefined || kind === 'unknown' || kind === 'failed') && m === undefined;
 
   const detectedServices: CardService[] =
@@ -138,6 +144,7 @@ export function deriveCard(
     host,
     overall,
     offline,
+    locked,
     metricRows,
     uptime: m?.uptime ?? undefined,
     // An offline card has no live sample, so it falls back to what the host last told us.

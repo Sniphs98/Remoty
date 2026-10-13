@@ -87,6 +87,10 @@ export function registerHostsIpc(ipcMain: IpcMain, state: GuiState): void {
     state.refreshMetrics();
   });
 
+  ipcMain.handle('unlock_host', (_event, hostName: string) => {
+    state.unlockHost(hostName);
+  });
+
   ipcMain.handle('reload_hosts', async () => {
     // The frontend calls this only after its event bridge is listening, so
     // the one-shot startup update check fires there too — starting it any

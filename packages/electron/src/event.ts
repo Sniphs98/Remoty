@@ -9,7 +9,9 @@ import type { DetectedService } from './core/ssh/services/types.js';
  * renderer — see `dto.ts` for the outbound shapes.
  */
 
-export type ConnectionStatus = { kind: 'unknown' } | { kind: 'connecting' } | { kind: 'connected' } | { kind: 'failed'; message: string };
+export type ConnectionStatus = { kind: 'unknown' } | { kind: 'connecting' } | { kind: 'connected' } | { kind: 'failed'; message: string }
+  /** Waiting for 1Password: the dashboard doesn't prompt on its own (see `PollManager.unlock`). */
+  | { kind: 'locked'; message: string };
 
 /** Live metrics collected from a remote server. `lastUpdated` is an epoch-ms
  *  timestamp (mirrors the Rust `Instant`); the DTO layer flattens it to
