@@ -537,10 +537,18 @@ export type AutomationNodeDto = {
 /** A value collected from the "run this automation" prompt rather than baked into any node
  *  — `'host'` supplies the target for every remote node in the automation, `'text'` is a
  *  free-form value substituted via `{{params.<name>}}`, `'fixed'` a variable set in the
- *  automation itself (`default` is its value) and never asked for. An automation may
- *  declare at most one `'host'` param. */
-export type AutomationParamDto = { name: string; kind: AutomationParamKindDto; label?: string | null; default?: string | null };
-export type AutomationParamKindDto = 'text' | 'host' | 'fixed';
+ *  automation itself (`default` is its value) and never asked for, `'choice'` one picked
+ *  from a drop-down of its `options` when it runs. An automation may declare at most one
+ *  `'host'` param. */
+export type AutomationParamDto = {
+  name: string;
+  kind: AutomationParamKindDto;
+  label?: string | null;
+  default?: string | null;
+  /** For a `'choice'` param: what its drop-down offers. */
+  options?: string[] | null;
+};
+export type AutomationParamKindDto = 'text' | 'host' | 'fixed' | 'choice';
 /** A host as the frontend sees it — password and private-key material omitted. */
 export type HostDto = {
   name: string;

@@ -379,17 +379,36 @@
     removeParam: (paramName: string) => {
       params = params.filter((p) => p.name !== paramName);
     },
-    updateParam: (paramName: string, patch: { name?: string; kind?: AutomationParamKindDto; value?: string }) => {
+    updateParam: (
+      paramName: string,
+      patch: { name?: string; kind?: AutomationParamKindDto; value?: string; options?: string[] }
+    ) => {
       const idx = params.findIndex((p) => p.name === paramName);
       if (idx === -1) return;
       const current = params[idx];
-      const nextName = patch.name !== undefined ? patch.name.trim() : current.name;
+      let nextName = patch.name !== undefined ? patch.name.trim() : current.name;
       const nextKind = patch.kind ?? current.kind;
       if (!nextName) return;
       if (nextName !== current.name && params.some((p, i) => i !== idx && p.name === nextName)) return;
       if (nextKind === 'host' && params.some((p, i) => i !== idx && p.kind === 'host')) return;
+      // A param still carrying its placeholder name becomes `host` when it turns into the host one.
+      if (
+        patch.kind === 'host' &&
+        current.kind !== 'host' &&
+        /^param(-\d+)?$/.test(nextName) &&
+        !params.some((p, i) => i !== idx && p.name === 'host')
+      ) {
+        nextName = 'host';
+      }
       const next = [...params];
-      next[idx] = { ...current, name: nextName, kind: nextKind, ...(patch.value !== undefined ? { default: patch.value } : {}) };
+      next[idx] = {
+        ...current,
+        name: nextName,
+        kind: nextKind,
+        ...(patch.value !== undefined ? { default: patch.value } : {}),
+        ...(patch.options !== undefined ? { options: patch.options } : {}),
+        ...(nextKind === 'choice' && current.options == null && patch.options === undefined ? { options: [] } : {})
+      };
       params = next;
     }
   });
@@ -615,6 +634,11 @@
         (n.type === 'snippet' && n.data.target === 'remote') ||
         (n.type === 'if' && n.data.condition.kind === 'command' && n.data.target === 'remote')
     );
+    const emptyChoice = params.find((p) => p.kind === 'choice' && !(p.options ?? []).some((o) => o.trim()));
+    if (emptyChoice) {
+      error = `Choice parameter "${emptyChoice.name}" needs at least one option`;
+      return;
+    }
     if (usesRemote && !hasHostParam) {
       error = 'This automation runs something on a host — add a host parameter on the Start node';
       return;
@@ -630,7 +654,10 @@
     // does implicitly by only copying primitive fields off n/n.data.
     const automation: AutomationDto = {
       name: automationNameTrimmed,
-      params: params.map((p) => ({ ...p })),
+      // A choice's options as typed (comma-separated) — trimmed, blanks dropped, on save.
+      params: params.map((p) =>
+        p.kind === 'choice' ? { ...p, options: (p.options ?? []).map((o) => o.trim()).filter(Boolean) } : { ...p, options: undefined }
+      ),
       nodes: stepNodes.map((n) => ({
         id: n.id,
         ...(n.type === 'call'

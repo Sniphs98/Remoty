@@ -182,6 +182,8 @@ export interface AutomationParamDto {
   kind: AutomationParamKindDto;
   label?: string;
   default?: string;
+  /** For a `'choice'` param: what its drop-down offers. */
+  options?: string[];
 }
 
 export function automationParamToDto(param: AutomationParam): AutomationParamDto {

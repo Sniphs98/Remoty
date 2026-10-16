@@ -105,7 +105,10 @@ function automationParamFromToml(raw: Record<string, unknown>, automationName: s
     name: raw.name,
     kind,
     label: typeof raw.label === 'string' ? raw.label : undefined,
-    default: typeof raw.default === 'string' ? raw.default : undefined
+    default: typeof raw.default === 'string' ? raw.default : undefined,
+    ...(kind === 'choice' && Array.isArray(raw.options)
+      ? { options: raw.options.filter((v): v is string => typeof v === 'string') }
+      : {})
   };
 }
 
@@ -113,6 +116,7 @@ function automationParamToToml(param: AutomationParam): Record<string, unknown> 
   const out: Record<string, unknown> = { name: param.name, kind: param.kind };
   if (param.label !== undefined) out.label = param.label;
   if (param.default !== undefined) out.default = param.default;
+  if (param.kind === 'choice' && param.options !== undefined) out.options = param.options;
   return out;
 }
 

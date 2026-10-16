@@ -5,9 +5,10 @@
   // SFTP's "Run automation with this file" context menu item, which prefills a text param
   // with the clicked file's path and the host param with the SFTP session's host). A
   // automation with no parameters never reaches this — callers run it directly instead.
-  import type { AutomationDto } from '$lib/bindings';
+  import type { AutomationDto, AutomationParamDto } from '$lib/bindings';
   import { Button } from '$lib/theme';
   import Modal from '$lib/components/Modal.svelte';
+  import Select from '$lib/components/Select.svelte';
   import { palette } from '$lib/stores/palette';
 
   let {
@@ -33,8 +34,15 @@
   const asked = automation.params.filter((p) => p.kind !== 'fixed');
   // svelte-ignore state_referenced_locally
   let values = $state<Record<string, string>>(
-    Object.fromEntries(asked.map((p) => [p.name, initialValues[p.name] ?? p.default ?? '']))
+    Object.fromEntries(asked.map((p) => [p.name, p.kind === 'choice' ? initialChoice(p) : (initialValues[p.name] ?? p.default ?? '')]))
   );
+
+  /** A choice starts on the given value or its default, if it's one of its options — else its first. */
+  function initialChoice(p: AutomationParamDto): string {
+    const options = p.options ?? [];
+    const wanted = initialValues[p.name] ?? p.default;
+    return wanted !== undefined && wanted !== null && options.includes(wanted) ? wanted : (options[0] ?? '');
+  }
 
   async function pickHost(paramName: string): Promise<void> {
     const host = await palette.pickHost();
@@ -66,6 +74,18 @@
               {values[param.name] || 'Choose a host…'}
             </button>
           </div>
+        {:else if param.kind === 'choice'}
+          <label class="block space-y-1 text-xs font-medium text-muted">
+            <span>{param.label || param.name}</span>
+            <Select
+              bind:value={values[param.name]}
+              class="w-full rounded-lg bg-surface-inset px-3 py-2 text-sm text-fg outline-none focus-visible:ring-2 focus-visible:ring-focus"
+            >
+              {#each param.options ?? [] as option (option)}
+                <option value={option}>{option}</option>
+              {/each}
+            </Select>
+          </label>
         {:else}
           <label class="block space-y-1 text-xs font-medium text-muted">
             <span>{param.label || param.name}</span>
