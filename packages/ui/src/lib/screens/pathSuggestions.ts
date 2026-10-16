@@ -1,11 +1,11 @@
 // What a pane's path bar suggests when it's clicked: the folders above the current one,
-// the folders in it, recently visited ones and the shortcuts — filtered by what's typed.
+// the folders in it, recently visited ones and the favorites — filtered by what's typed.
 // Works for this computer's paths (C:\Users\me, /home/me) and the server's (/var/www).
 // Kept free of Svelte so it's unit-testable; PathBar.svelte renders it.
 
 export interface PathSuggestion {
   path: string;
-  /** What the row shows: a shortcut's name, a folder's own name, or the whole path. */
+  /** What the row shows: a favorite's name, a folder's own name, or the whole path. */
   label: string;
 }
 
@@ -60,7 +60,7 @@ export function pathSuggestions(input: {
   const filter = q && q !== input.path.toLowerCase() ? q : '';
   const keep = (s: PathSuggestion) => !filter || s.path.toLowerCase().includes(filter) || s.label.toLowerCase().includes(filter);
   const groups: PathSuggestionGroup[] = [
-    { title: 'Shortcuts', items: input.shortcuts.map((s) => ({ path: s.path, label: s.name })) },
+    { title: 'Favorites', items: input.shortcuts.map((s) => ({ path: s.path, label: s.name })) },
     { title: 'In this folder', items: input.subfolders.map((p) => ({ path: p, label: baseName(p) })) },
     { title: 'Up', items: ancestors(input.path).reverse().map((p) => ({ path: p, label: p })) },
     { title: 'Recent', items: input.recent.filter((p) => p !== input.path).map((p) => ({ path: p, label: p })) }

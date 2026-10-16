@@ -24,7 +24,7 @@
   import { sftp, markedEntries, formatBytes, type Pane, type PaneSide, type PendingOp } from '$lib/stores/sftp';
   import { canCut, pasteLabel, pastePlan, type FileClip } from './sftpClipboard';
   import PathBar from './PathBar.svelte';
-  import { rememberPath } from './pathSuggestions';
+  import { baseName, rememberPath } from './pathSuggestions';
   import { opKey, readyOps } from '$lib/stores/sftpQueue';
   import { lastError } from '$lib/stores/notifications';
   import { runAutomationNow } from '$lib/stores/automations';
@@ -104,9 +104,8 @@
   // confirm time rather than snapshotting it, same as `remove()` already did.
   let deleteConfirm = $state(false);
 
-  // The add/edit form for a local-folder bookmark (the badges above the panes, see
-  // stores/sftpBookmarks.ts). `id` is the bookmark being edited, absent for a new one.
-  let bookmarkForm = $state<{ id?: string; name: string; path: string; isDefault: boolean } | null>(null);
+  // The edit form for a favorite folder (starred in a path bar, see stores/sftpBookmarks.ts).
+  let bookmarkForm = $state<{ id?: string; name: string; path: string; isDefault: boolean; host?: string } | null>(null);
 
   // The local pane can be hidden to see more of the remote side; the drawer terminal
   // (SftpTerminalDrawer, cd'd into the remote path at the moment it opens) docks below
@@ -288,16 +287,36 @@
     await refreshLocal(home);
   }
 
+  // Favorites: this computer's, or this host's (by name) — whichever a pane shows.
+  const favoritesOn = (onHost: boolean): SftpBookmark[] =>
+    $sftpBookmarks.filter((b) => (onHost ? b.host === session.hostName : !b.host));
+
+  function toggleFavorite(onHost: boolean, path: string): void {
+    if (!path) return;
+    const existing = favoritesOn(onHost).find((b) => b.path === path);
+    if (existing) sftpBookmarks.remove(existing.id);
+    else
+      sftpBookmarks.save({
+        id: newBookmarkId(),
+        name: baseName(path),
+        path,
+        isDefault: false,
+        ...(onHost ? { host: session.hostName } : {})
+      });
+  }
+
   function goToBookmark(bookmark: SftpBookmark): void {
+    if (bookmark.host) {
+      void refreshRemote(bookmark.path);
+      return;
+    }
     hideLocal = false;
     if (leftHost) return;
     void refreshLocal(bookmark.path);
   }
 
-  function openBookmarkForm(bookmark?: SftpBookmark): void {
-    bookmarkForm = bookmark
-      ? { ...bookmark }
-      : { name: '', path: view?.local.path ?? '', isDefault: false };
+  function openBookmarkForm(bookmark: SftpBookmark): void {
+    bookmarkForm = { ...bookmark };
   }
 
   function submitBookmarkForm(): void {
@@ -306,7 +325,13 @@
     const name = form.name.trim();
     const path = form.path.trim();
     if (!name || !path) return;
-    sftpBookmarks.save({ id: form.id ?? newBookmarkId(), name, path, isDefault: form.isDefault });
+    sftpBookmarks.save({
+      id: form.id ?? newBookmarkId(),
+      name,
+      path,
+      isDefault: form.host ? false : form.isDefault,
+      ...(form.host ? { host: form.host } : {})
+    });
     bookmarkForm = null;
   }
 
@@ -318,11 +343,15 @@
       items: [
         { label: 'Open', icon: 'folder', onSelect: () => goToBookmark(bookmark) },
         { label: 'Edit…', icon: 'edit', onSelect: () => openBookmarkForm(bookmark) },
-        {
-          label: bookmark.isDefault ? 'Unset as default' : 'Set as default',
-          icon: 'check',
-          onSelect: () => sftpBookmarks.save({ ...bookmark, isDefault: !bookmark.isDefault })
-        },
+        ...(bookmark.host
+          ? []
+          : [
+              {
+                label: bookmark.isDefault ? 'Unset as default' : 'Set as default',
+                icon: 'check' as const,
+                onSelect: () => sftpBookmarks.save({ ...bookmark, isDefault: !bookmark.isDefault })
+              }
+            ]),
         { label: 'Remove', icon: 'trash', danger: true, onSelect: () => sftpBookmarks.remove(bookmark.id) }
       ]
     };
@@ -1203,29 +1232,19 @@
             >
               <Icon name="refresh" size={13} />
             </button>
-            <button
-              type="button"
-              class={toolBtn}
-              title={leftHost ? 'Browse local files here' : `Browse ${session.hostName} here`}
-              aria-label={leftHost ? 'Browse local files here' : `Browse ${session.hostName} here`}
-              aria-pressed={leftHost}
-              onclick={() => void setLeftHost(!leftHost)}
-            >
-              <Icon name={leftHost ? 'monitor' : 'sftp'} size={13} />
-            </button>
           {/snippet}
           {#snippet pathBar()}
             <PathBar
               path={leftPane.path}
               subfolders={subfoldersOf(leftPane)}
               recent={leftHost ? recentPaths.host : recentPaths.local}
-              shortcuts={leftHost ? [] : $sftpBookmarks}
+              shortcuts={favoritesOn(leftHost)}
               sources={[
                 { label: 'This computer', active: !leftHost, onSelect: () => void setLeftHost(false) },
                 { label: session.hostName, active: leftHost, onSelect: () => void setLeftHost(true) }
               ]}
               onGo={(path) => goTo('local', path)}
-              onAddShortcut={leftHost ? undefined : () => openBookmarkForm()}
+              onToggleFavorite={() => toggleFavorite(leftHost, leftPane.path)}
               onShortcutContextMenu={(id, event) => {
                 const bookmark = $sftpBookmarks.find((b) => b.id === id);
                 if (bookmark) openBookmarkContextMenu(bookmark, event);
@@ -1257,7 +1276,13 @@
             path={view.remote.path}
             subfolders={subfoldersOf(view.remote)}
             recent={recentPaths.host}
+            shortcuts={favoritesOn(true)}
             onGo={(path) => goTo('remote', path)}
+            onToggleFavorite={() => toggleFavorite(true, view.remote.path)}
+            onShortcutContextMenu={(id, event) => {
+              const bookmark = $sftpBookmarks.find((b) => b.id === id);
+              if (bookmark) openBookmarkContextMenu(bookmark, event);
+            }}
             onContextMenu={(event) => openPathContextMenu('remote', event)}
           />
         {/snippet}
@@ -1470,7 +1495,7 @@
 {/if}
 
 {#if active && bookmarkForm}
-  <Modal label={bookmarkForm.id ? 'Edit shortcut' : 'New shortcut'} onClose={() => (bookmarkForm = null)}>
+  <Modal label="Edit favorite" onClose={() => (bookmarkForm = null)}>
     <form
       onsubmit={(e) => {
         e.preventDefault();
@@ -1478,7 +1503,7 @@
       }}
     >
       <header class="border-b border-default px-5 py-3.5">
-        <h2 class="text-sm font-semibold">{bookmarkForm.id ? 'Edit shortcut' : 'New shortcut'}</h2>
+        <h2 class="text-sm font-semibold">Edit favorite</h2>
       </header>
       <div class="space-y-3 px-5 py-4">
         <label class="block space-y-1">
@@ -1487,9 +1512,10 @@
           <input autofocus bind:value={bookmarkForm.name} class={field} placeholder="Downloads" />
         </label>
         <label class="block space-y-1">
-          <span class="text-xs text-muted">Local folder</span>
+          <span class="text-xs text-muted">{bookmarkForm.host ? `Folder on ${bookmarkForm.host}` : 'Local folder'}</span>
           <input bind:value={bookmarkForm.path} class="{field} font-mono" placeholder="/home/me/Downloads" />
         </label>
+        {#if !bookmarkForm.host}
         <div class="flex items-center justify-between gap-3">
           <span class="text-sm">
             Open SFTP tabs here
@@ -1497,6 +1523,7 @@
           </span>
           <Switch bind:checked={bookmarkForm.isDefault} label="Open SFTP tabs here" />
         </div>
+        {/if}
       </div>
       <footer class="flex justify-end gap-2 border-t border-default px-5 py-3">
         <button

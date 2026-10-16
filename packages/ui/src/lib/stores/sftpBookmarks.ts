@@ -1,9 +1,9 @@
 import { writable } from 'svelte/store';
 
-// Shortcuts to folders on this machine, shown as badges above the SFTP tab's local pane:
-// a click there navigates the local side to the folder. At most one is the default, which
-// every SFTP tab opens its local pane in instead of the home directory. Local paths, so
-// they belong to this machine rather than to any host — one list for every SFTP tab.
+// Favorite folders, starred in an SFTP pane's path bar and listed there: a click goes to
+// the folder. Without `host` they're on this machine — one list for every SFTP tab, and
+// at most one is the default, which every SFTP tab opens its local pane in instead of
+// the home directory. With `host` they're on that host (by name) and shown for it only.
 // Persisted like the other UI prefs (see `stores/terminalPrefs.ts`): canonical copy in the
 // settings store, mirrored to localStorage so a tab opened before `hydrate()` resolves
 // already has them.
@@ -13,6 +13,8 @@ export interface SftpBookmark {
   name: string;
   path: string;
   isDefault: boolean;
+  /** The host the folder is on; absent for this machine. */
+  host?: string;
 }
 
 const LOCAL_KEY = 'remoty-sftp-bookmarks';
@@ -32,8 +34,12 @@ export function parseBookmarks(raw: unknown): SftpBookmark[] | undefined {
   const out: SftpBookmark[] = [];
   for (const item of raw) {
     if (!item || typeof item !== 'object') continue;
-    const { id, name, path, isDefault } = item as Record<string, unknown>;
+    const { id, name, path, isDefault, host } = item as Record<string, unknown>;
     if (typeof id !== 'string' || typeof name !== 'string' || typeof path !== 'string') continue;
+    if (typeof host === 'string') {
+      out.push({ id, name, path, isDefault: false, host });
+      continue;
+    }
     const dflt = isDefault === true && !sawDefault;
     if (dflt) sawDefault = true;
     out.push({ id, name, path, isDefault: dflt });
@@ -43,13 +49,13 @@ export function parseBookmarks(raw: unknown): SftpBookmark[] | undefined {
 
 /** The folder a new SFTP tab's local pane should open in, if a bookmark is the default. */
 export function defaultBookmarkPath(list: SftpBookmark[]): string | undefined {
-  return list.find((b) => b.isDefault)?.path;
+  return list.find((b) => b.isDefault && !b.host)?.path;
 }
 
 /** `list` with `bookmark` added (new id) or replaced (same id). Marking it the default
  *  clears the flag everywhere else, so there's only ever one. */
 export function upsertBookmark(list: SftpBookmark[], bookmark: SftpBookmark): SftpBookmark[] {
-  const others = bookmark.isDefault ? list.map((b) => ({ ...b, isDefault: false })) : list;
+  const others = bookmark.isDefault && !bookmark.host ? list.map((b) => (b.host ? b : { ...b, isDefault: false })) : list;
   const at = others.findIndex((b) => b.id === bookmark.id);
   return at === -1 ? [...others, bookmark] : others.map((b, i) => (i === at ? bookmark : b));
 }

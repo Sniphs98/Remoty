@@ -1,8 +1,9 @@
 <script lang="ts">
   // A pane's current path, clickable: it opens a field to type a path into (Enter goes
   // there) with suggestions under it — what this pane shows (this computer or the
-  // server, for the left one), shortcuts, the folders in this one, the ones above, and
-  // recent ones (pathSuggestions.ts). Esc or a click outside closes it.
+  // server, for the left one), favorites, the folders in this one, the ones above, and
+  // recent ones (pathSuggestions.ts). Esc or a click outside closes it. The star in
+  // front makes the current folder a favorite, or no longer one.
   import { tick } from 'svelte';
   import { Icon } from '$lib/theme';
   import { pathSuggestions } from './pathSuggestions';
@@ -14,7 +15,7 @@
     shortcuts = [],
     sources = [],
     onGo,
-    onAddShortcut,
+    onToggleFavorite,
     onShortcutContextMenu,
     onContextMenu
   }: {
@@ -25,8 +26,8 @@
     /** What the pane can show (the left one: this computer, or the server). */
     sources?: Array<{ label: string; active: boolean; onSelect: () => void }>;
     onGo: (path: string) => void;
-    /** Shortcuts can be added here (this computer's pane). */
-    onAddShortcut?: () => void;
+    /** Stars or unstars the current folder. */
+    onToggleFavorite?: () => void;
     onShortcutContextMenu?: (id: string, event: MouseEvent) => void;
     /** Right-click on the closed bar (copy / paste / set as default). */
     onContextMenu?: (event: MouseEvent) => void;
@@ -35,6 +36,7 @@
   let open = $state(false);
   let typed = $state('');
   let inputEl = $state<HTMLInputElement>();
+  const favorite = $derived(shortcuts.some((s) => s.path === path));
   const groups = $derived(open ? pathSuggestions({ path, typed, subfolders, recent, shortcuts }) : []);
 
   async function show(): Promise<void> {
@@ -55,10 +57,24 @@
     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus';
 </script>
 
-<div class="relative mt-1">
+<div class="relative mt-1 flex items-center gap-1">
+  {#if onToggleFavorite}
+    <button
+      type="button"
+      class="-ml-1 shrink-0 rounded-md p-0.5 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus
+        {favorite ? 'text-status-warn [&_svg]:fill-current' : 'text-faint hover:text-fg'}"
+      title={favorite ? 'Remove from favorites' : 'Add to favorites'}
+      aria-label={favorite ? 'Remove from favorites' : 'Add to favorites'}
+      aria-pressed={favorite}
+      disabled={!path}
+      onclick={onToggleFavorite}
+    >
+      <Icon name="star" size={12} />
+    </button>
+  {/if}
   <button
     type="button"
-    class="group flex w-full min-w-0 items-center gap-1 rounded-md px-1 py-0.5 -mx-1 text-left font-mono text-xs text-faint transition hover:bg-surface-inset hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+    class="group flex min-w-0 flex-1 items-center gap-1 rounded-md px-1 py-0.5 {onToggleFavorite ? '' : '-ml-1'} -mr-1 text-left font-mono text-xs text-faint transition hover:bg-surface-inset hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
     title="{path} — click to go elsewhere"
     aria-label="Path {path} — go elsewhere"
     aria-expanded={open}
@@ -119,7 +135,7 @@
         {#each groups as group (group.title)}
           <p class="px-2 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wider text-faint">{group.title}</p>
           {#each group.items as item (item.path)}
-            {@const shortcut = group.title === 'Shortcuts' ? shortcuts.find((s) => s.path === item.path) : undefined}
+            {@const shortcut = group.title === 'Favorites' ? shortcuts.find((s) => s.path === item.path) : undefined}
             <button
               type="button"
               class={row}
@@ -132,24 +148,11 @@
                 onShortcutContextMenu(shortcut.id, event);
               }}
             >
-              <Icon name="folder" size={12} />
+              <Icon name={shortcut ? 'star' : 'folder'} size={12} />
               <span class="min-w-0 flex-1 truncate {group.title === 'In this folder' || shortcut ? '' : 'font-mono'}">{item.label}</span>
             </button>
           {/each}
         {/each}
-        {#if onAddShortcut}
-          <button
-            type="button"
-            class="{row} mt-1 text-muted"
-            onclick={() => {
-              open = false;
-              onAddShortcut();
-            }}
-          >
-            <Icon name="plus" size={12} />
-            Add a shortcut to this folder
-          </button>
-        {/if}
       </div>
     </div>
   {/if}

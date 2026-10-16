@@ -31,9 +31,9 @@ describe('pathSuggestions', () => {
     shortcuts: [{ name: 'Projects', path: '/srv/projects' }]
   };
 
-  it('with the bar untouched: shortcuts, the folders in it, the ones above, recent ones', () => {
+  it('with the bar untouched: favorites, the folders in it, the ones above, recent ones', () => {
     expect(pathSuggestions(input).map((g) => [g.title, g.items.map((i) => i.label)])).toEqual([
-      ['Shortcuts', ['Projects']],
+      ['Favorites', ['Projects']],
       ['In this folder', ['app', 'logs']],
       ['Up', ['/var', '/']],
       ['Recent', ['/etc/nginx']]
