@@ -373,6 +373,26 @@ export interface RdpEmbeddedStatusDto {
   notice?: string;
 }
 
+/** What the renderer's embedded VNC client (noVNC) connects with (`vnc_embedded_open`). */
+export interface VncEmbeddedSessionDto {
+  token: string;
+  /** The local gateway's WebSocket URL for this session. */
+  url: string;
+  /** Handed to noVNC so it signs in by itself; left out, it asks when the server wants them. */
+  username?: string;
+  password?: string;
+}
+
+/** Why an embedded VNC session couldn't connect (`vnc_embedded_status`). */
+export interface VncEmbeddedStatusDto {
+  failure?: string;
+}
+
+/** What `vnc_launch` resolves with once the external viewer has been asked to open. */
+export interface VncLaunchResultDto {
+  notice?: string;
+}
+
 /** What `rdp_launch` resolves with once the native client is running. */
 export interface RdpLaunchResultDto {
   /** Something the user should know about how it was launched. */

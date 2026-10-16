@@ -298,6 +298,18 @@ export const commands = {
   async rdpEmbeddedClose(token: string): Promise<Result<null, CommandError>> {
     return call('rdp_embedded_close', token);
   },
+  async vncEmbeddedOpen(connectionId: string, progressKey?: string): Promise<Result<VncEmbeddedSessionDto, CommandError>> {
+    return call('vnc_embedded_open', connectionId, progressKey);
+  },
+  async vncEmbeddedStatus(token: string): Promise<Result<VncEmbeddedStatusDto, CommandError>> {
+    return call('vnc_embedded_status', token);
+  },
+  async vncEmbeddedClose(token: string): Promise<Result<null, CommandError>> {
+    return call('vnc_embedded_close', token);
+  },
+  async vncLaunch(connectionId: string): Promise<Result<VncLaunchResultDto, CommandError>> {
+    return call('vnc_launch', connectionId);
+  },
   async onePasswordStatus(): Promise<Result<OnePasswordStatusDto, CommandError>> {
     return call('onepassword_status');
   },
@@ -749,9 +761,22 @@ export type RemoteDesktopConnectionInputDto = RdpSettingsDto & {
   /** The Remote Desktop screen's folder; unset means none. */
   folder?: string | null;
 };
-/** Only `'rdp'` is reachable from the UI for now — `'vnc'` exists so a later pass is
- *  additive, not a migration. */
 export type RemoteDesktopProtocolDto = 'rdp' | 'vnc';
+
+/** What the embedded VNC client (noVNC) connects with (`vnc_embedded_open`). */
+export type VncEmbeddedSessionDto = {
+  token: string;
+  /** The local gateway's WebSocket URL for this session. */
+  url: string;
+  username?: string | null;
+  password?: string | null;
+};
+
+/** Why an embedded VNC session couldn't connect. */
+export type VncEmbeddedStatusDto = { failure?: string | null };
+
+/** What `vnc_launch` resolves with once the external viewer has been asked to open. */
+export type VncLaunchResultDto = { notice?: string | null };
 /** A service detected on a host with its quick-scan metrics. */
 export type ServiceDto = { kind: ServiceKindDto; metrics: ServiceMetricDto[] };
 /** A service kind detected on a host. */

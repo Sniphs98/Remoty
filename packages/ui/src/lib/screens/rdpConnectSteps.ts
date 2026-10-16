@@ -1,4 +1,4 @@
-// The steps an embedded RDP tab shows while it connects, so a slow connection reads as
+// The steps an embedded RDP or VNC tab shows while it connects, so a slow connection reads as
 // "working on it" rather than stuck: which steps apply depends on the profile (1Password,
 // an SSH tunnel), and the main process reports each one as it gets there
 // (`rdp-connect-progress`). Kept apart from RdpView.svelte so it is unit-testable.
@@ -17,13 +17,20 @@ export type RdpStepStatus = 'done' | 'active' | 'failed' | 'pending';
 
 /** The steps for a connection, in order. `server` names it — its address, or its name
  *  where the address isn't to be shown (streamer mode, 1Password). */
-export function rdpConnectSteps(c: { onePassword: boolean; viaHost?: string | null; server: string }): RdpConnectStep[] {
+export function rdpConnectSteps(c: {
+  onePassword: boolean;
+  viaHost?: string | null;
+  server: string;
+  /** VNC has no TLS step of the gateway's own: it goes straight from reaching the server
+   *  to signing in. */
+  protocol?: 'rdp' | 'vnc';
+}): RdpConnectStep[] {
   return [
     { stage: 'viewer', label: 'Starting the viewer' },
     ...(c.onePassword ? [{ stage: 'onePassword' as const, label: 'Reading sign-in from 1Password' }] : []),
     ...(c.viaHost ? [{ stage: 'tunnel' as const, label: `Opening SSH tunnel through ${c.viaHost}` }] : []),
     { stage: 'reach', label: `Reaching ${c.server}` },
-    { stage: 'secure', label: 'Securing the connection' },
+    ...(c.protocol === 'vnc' ? [] : [{ stage: 'secure' as const, label: 'Securing the connection' }]),
     { stage: 'signin', label: 'Signing in' }
   ];
 }

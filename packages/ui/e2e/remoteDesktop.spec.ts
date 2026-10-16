@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
-// Remote Desktop (RDP only this round — see the feature plan): a new sidebar area,
+// Remote Desktop (RDP here; VNC has its own spec, vnc.spec.ts): a new sidebar area,
 // reached via the top SSH/Remote Desktop switch, that manages RDP connection profiles
 // and launches them via the OS's native client. e2e runs against the static SPA with
 // the Electron preload bridge absent, so we install a `window.remoty` stub;
