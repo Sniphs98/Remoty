@@ -23,9 +23,11 @@
   --text-faint: #8a94a2;
   --border: #e0e4ea;
   --border-strong: #c3cad4;
-  --accent: #1b212b;
+  /* A softer slate than the ink: selected rows and primary buttons stand out without
+     a near-black slab on a light page. White on it still clears ~8:1. */
+  --accent: #3b4656;
   --accent-fg: #ffffff;
-  --focus-ring: rgba(27, 33, 43, 0.35);
+  --focus-ring: rgba(59, 70, 86, 0.35);
   --glass: rgba(255, 255, 255, 0.85);
   --overlay: rgba(15, 20, 28, 0.32);
   --status-ok: #18794a;
