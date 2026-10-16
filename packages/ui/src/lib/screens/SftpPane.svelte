@@ -36,7 +36,8 @@
     onPathContextMenu,
     dragDirs = false,
     toolbar,
-    subheader
+    subheader,
+    pathBar
   }: {
     title: string;
     pane: Pane;
@@ -57,8 +58,10 @@
      *  cheap to move as a file. Transfers stay files-only. */
     dragDirs?: boolean;
     toolbar?: Snippet;
-    /** Under the path line, e.g. the local pane's folder shortcuts. */
+    /** Under the path line. */
     subheader?: Snippet;
+    /** In place of the plain path line: one that can be clicked to go elsewhere. */
+    pathBar?: Snippet;
   } = $props();
 
   let dragActive = $state(false);
@@ -129,6 +132,9 @@
         {@render toolbar?.()}
       </div>
     </div>
+    {#if pathBar}
+      {@render pathBar()}
+    {:else}
     <!-- svelte-ignore a11y_no_static_element_interactions -- a right-click shortcut only;
          the default path can also be set from the host form. -->
     <div
@@ -143,6 +149,7 @@
     >
       {pane.path || '—'}
     </div>
+    {/if}
     {@render subheader?.()}
   </header>
 

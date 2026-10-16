@@ -5,7 +5,7 @@
   // sftp_* commands, and reads its per-session state from the sftp store (fed by the
   // `sftp-*` events, §3.4). Local browsing uses list_local_dir (returns directly);
   // remote uses sftp_list (arrives as an event). Semantic tokens only (§5.1).
-  import { onMount, onDestroy, tick } from 'svelte';
+  import { onMount, onDestroy, tick, untrack } from 'svelte';
   import { Button, Icon } from '$lib/theme';
   import Modal from '$lib/components/Modal.svelte';
   import Switch from '$lib/components/Switch.svelte';
@@ -23,6 +23,8 @@
   import { hosts } from '$lib/stores/hosts';
   import { sftp, markedEntries, formatBytes, type Pane, type PaneSide, type PendingOp } from '$lib/stores/sftp';
   import { canCut, pasteLabel, pastePlan, type FileClip } from './sftpClipboard';
+  import PathBar from './PathBar.svelte';
+  import { rememberPath } from './pathSuggestions';
   import { opKey, readyOps } from '$lib/stores/sftpQueue';
   import { lastError } from '$lib/stores/notifications';
   import { runAutomationNow } from '$lib/stores/automations';
@@ -453,6 +455,37 @@
     if (target === 'local' || target === 'both') refreshLeft(leftPane.path);
     if (target === 'remote' || target === 'both') refreshRemote(view.remote.path);
   });
+
+  // The path bars: where to go (typed or picked), and the folders visited lately — this
+  // computer's apart from the server's (the left pane can show either).
+  let recentPaths = $state<{ local: string[]; host: string[] }>({ local: [], host: [] });
+  // Remembered when a pane's path changes — only then, so the two panes (both on the
+  // host, say) never take turns putting their own folder first.
+  let seenLeft = '';
+  let seenRight = '';
+  $effect(() => {
+    const left = leftPane.path ? `${leftHost ? 'host' : 'local'}:${leftPane.path}` : '';
+    const right = view?.remote.path ?? '';
+    untrack(() => {
+      if (left && left !== seenLeft) {
+        seenLeft = left;
+        const key = leftHost ? 'host' : 'local';
+        recentPaths = { ...recentPaths, [key]: rememberPath(recentPaths[key], leftPane.path) };
+      }
+      if (right && right !== seenRight) {
+        seenRight = right;
+        recentPaths = { ...recentPaths, host: rememberPath(recentPaths.host, right) };
+      }
+    });
+  });
+  const subfoldersOf = (pane: Pane | undefined): string[] =>
+    (pane?.entries ?? []).filter((e) => e.isDir && e.name !== '..').map((e) => e.path);
+
+  function goTo(side: PaneSide, path: string): void {
+    lastSide = side;
+    if (side === 'local') refreshLeft(path);
+    else refreshRemote(path);
+  }
 
   function navigate(side: PaneSide, entry: FileEntryDto): void {
     if (side === 'local') refreshLeft(entry.path);
@@ -1181,42 +1214,24 @@
               <Icon name={leftHost ? 'monitor' : 'sftp'} size={13} />
             </button>
           {/snippet}
-          {#snippet subheader()}
-            {#if !leftHost}
-              <!-- Local-folder shortcuts: click to open, right-click to edit, make
-                   default or remove. Local paths, so not shown while this pane is on
-                   the host. -->
-              <div class="mt-2 flex flex-wrap items-center gap-1.5" role="toolbar" aria-label="Local folder shortcuts">
-                {#each $sftpBookmarks as bookmark (bookmark.id)}
-                  <button
-                    type="button"
-                    class="{toolBtn} max-w-[14rem] {view.local.path === bookmark.path ? 'border-accent text-fg' : ''}"
-                    title={bookmark.isDefault ? `${bookmark.path} (opens by default)` : bookmark.path}
-                    onclick={() => goToBookmark(bookmark)}
-                    oncontextmenu={(event) => {
-                      event.preventDefault();
-                      openBookmarkContextMenu(bookmark, event);
-                    }}
-                  >
-                    <Icon name="folder" size={13} />
-                    <span class="truncate">{bookmark.name}</span>
-                    {#if bookmark.isDefault}
-                      <Icon name="check" size={11} />
-                    {/if}
-                  </button>
-                {/each}
-                <button
-                  type="button"
-                  class={toolBtn}
-                  title="Add shortcut"
-                  aria-label="Add shortcut"
-                  onclick={() => openBookmarkForm()}
-                >
-                  <Icon name="plus" size={13} />
-                  {#if $sftpBookmarks.length === 0}Shortcut{/if}
-                </button>
-              </div>
-            {/if}
+          {#snippet pathBar()}
+            <PathBar
+              path={leftPane.path}
+              subfolders={subfoldersOf(leftPane)}
+              recent={leftHost ? recentPaths.host : recentPaths.local}
+              shortcuts={leftHost ? [] : $sftpBookmarks}
+              sources={[
+                { label: 'This computer', active: !leftHost, onSelect: () => void setLeftHost(false) },
+                { label: session.hostName, active: leftHost, onSelect: () => void setLeftHost(true) }
+              ]}
+              onGo={(path) => goTo('local', path)}
+              onAddShortcut={leftHost ? undefined : () => openBookmarkForm()}
+              onShortcutContextMenu={(id, event) => {
+                const bookmark = $sftpBookmarks.find((b) => b.id === id);
+                if (bookmark) openBookmarkContextMenu(bookmark, event);
+              }}
+              onContextMenu={(event) => openPathContextMenu('local', event)}
+            />
           {/snippet}
         </SftpPane>
       {/if}
@@ -1237,6 +1252,15 @@
         onEmptyContextMenu={(event) => openEmptyContextMenu('remote', event)}
         onPathContextMenu={(event) => openPathContextMenu('remote', event)}
       >
+        {#snippet pathBar()}
+          <PathBar
+            path={view.remote.path}
+            subfolders={subfoldersOf(view.remote)}
+            recent={recentPaths.host}
+            onGo={(path) => goTo('remote', path)}
+            onContextMenu={(event) => openPathContextMenu('remote', event)}
+          />
+        {/snippet}
         {#snippet toolbar()}
           {#if leftHost}
             <button
