@@ -437,6 +437,11 @@ export type SnippetDto = {
   name: string;
   command: string;
   timeoutSecs: number;
+  /** Where the Snippets screen lists it; `'SFTP menu'` also puts it in the SFTP
+   *  browser's right-click menu. Absent: uncategorized. */
+  category?: string;
+  /** In the SFTP menu category: the submenu it's under there. */
+  submenu?: string;
 };
 /** Every node in a completed automation run has settled (success, failed, or skipped). */
 export type AutomationCompleted = { automationName: string; results: NodeResultDto[] };

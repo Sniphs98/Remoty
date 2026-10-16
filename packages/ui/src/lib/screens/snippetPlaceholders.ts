@@ -53,28 +53,61 @@ export function snippetsForTarget<T extends { command: string }>(snippets: T[], 
   });
 }
 
-/** The Snippets tab's sections, by what a snippet can be run on — the same split as the
- *  SFTP browser's pickers, so the tab shows where each one will turn up. Empty sections
- *  are left out; each keeps the library's own order. */
+/** The category that puts a snippet in the SFTP browser's right-click menu. Every other
+ *  category (free text, made up by the user) only sorts the Snippets screen. */
+export const SFTP_MENU_CATEGORY = 'SFTP menu';
+/** The submenu an SFTP-menu snippet without one of its own goes under. */
+export const DEFAULT_SUBMENU = 'Snippets';
+
+type Categorized = { command: string; name: string; category?: string; submenu?: string };
+
+const inSftpMenu = (s: { category?: string }) => s.category === SFTP_MENU_CATEGORY;
+
+/** Why a snippet in the SFTP menu category won't actually show there, if it won't: a
+ *  right-click can fill in `{{file}}` and nothing else. */
+export function sftpMenuProblem(command: string): string | undefined {
+  const others = placeholdersIn(command).filter((p) => p !== FILE_PLACEHOLDER);
+  return others.length > 0
+    ? `Uses ${others[0]}, which a right-click can't fill in — only {{file}} works there.`
+    : undefined;
+}
+
+/** The SFTP right-click menu's snippet submenus for what was clicked: the snippets in
+ *  the SFTP menu category that fit it (see `snippetsForTarget`), grouped by submenu in
+ *  order of first appearance, each sorted by name. */
+export function sftpMenuGroups<T extends Categorized>(snippets: T[], target: SnippetTarget): Array<{ title: string; snippets: T[] }> {
+  const groups = new Map<string, T[]>();
+  for (const snippet of snippetsForTarget(snippets.filter(inSftpMenu), target)) {
+    const title = snippet.submenu?.trim() || DEFAULT_SUBMENU;
+    groups.set(title, [...(groups.get(title) ?? []), snippet]);
+  }
+  return [...groups].map(([title, list]) => ({ title, snippets: [...list].sort((a, b) => a.name.localeCompare(b.name)) }));
+}
+
+/** Every category in use, the SFTP menu one first and the rest by name — what the
+ *  editor's category field suggests. */
+export function snippetCategories(snippets: Array<{ category?: string }>): string[] {
+  const own = [...new Set(snippets.map((s) => s.category).filter((c): c is string => !!c && c !== SFTP_MENU_CATEGORY))];
+  return [SFTP_MENU_CATEGORY, ...own.sort((a, b) => a.localeCompare(b))];
+}
+
+/** The Snippets tab's sections, one per category: the SFTP menu first (it's the one that
+ *  does something), then the user's own by name, then the uncategorized ones. Empty
+ *  sections are left out; each keeps the library's own order. */
 export interface SnippetSection<T> {
-  key: 'file' | 'general' | 'automation';
+  key: string;
   title: string;
   hint: string;
   snippets: T[];
 }
 
-export function snippetSections<T extends { command: string }>(snippets: T[]): SnippetSection<T>[] {
-  const file = snippetsForTarget(snippets, 'entry');
-  const general = snippetsForTarget(snippets, 'folder');
-  const sections: SnippetSection<T>[] = [
-    { key: 'file', title: 'Files & folders', hint: 'Only {{file}} — right-click a file or folder in SFTP', snippets: file },
-    { key: 'general', title: 'General', hint: 'No placeholders — right-click empty space in SFTP', snippets: general },
-    {
-      key: 'automation',
-      title: 'Automations only',
-      hint: 'Uses parameters or node outputs, so it only runs inside an automation',
-      snippets: snippets.filter((s) => !file.includes(s) && !general.includes(s))
-    }
-  ];
+export function snippetSections<T extends Categorized>(snippets: T[]): SnippetSection<T>[] {
+  const sections: SnippetSection<T>[] = snippetCategories(snippets).map((category) => ({
+    key: `category:${category}`,
+    title: category,
+    hint: category === SFTP_MENU_CATEGORY ? 'Shown when you right-click in the SFTP browser' : '',
+    snippets: snippets.filter((s) => s.category === category)
+  }));
+  sections.push({ key: 'uncategorized', title: 'Uncategorized', hint: '', snippets: snippets.filter((s) => !s.category) });
   return sections.filter((s) => s.snippets.length > 0);
 }

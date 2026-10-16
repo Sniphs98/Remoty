@@ -211,15 +211,17 @@ async function boot(
               return Promise.resolve([
                 { name: 'unzip', params: [{ name: 'archive', kind: 'text' }], nodes: [], edges: [] }
               ]);
-            // The Snippet library behind the remote right-click menus — one snippet that
-            // wants the clicked path (offered on a file), one that doesn't (offered on
-            // empty space, run in the folder being browsed).
+            // The Snippet library behind the remote right-click menus. In the "SFTP menu"
+            // category: one that wants the clicked path (offered on a file, in its
+            // "Archives" submenu), two that don't (offered on empty space, run in the
+            // folder being browsed). "uptime" has no category, so it's in no menu.
             case 'list_snippets':
               return Promise.resolve([
-                { id: 's1', name: 'extract', command: 'tar -xf {{file}}', timeoutSecs: 300 },
-                { id: 's2', name: 'disk free', command: 'df -h', timeoutSecs: 300 },
+                { id: 's1', name: 'extract', command: 'tar -xf {{file}}', timeoutSecs: 300, category: 'SFTP menu', submenu: 'Archives' },
+                { id: 's2', name: 'disk free', command: 'df -h', timeoutSecs: 300, category: 'SFTP menu' },
                 // Saved from the editor on Windows: `\r\n` line ends.
-                { id: 's3', name: 'report', command: 'echo "hello"\r\nfor f in *.log; do\r\n  wc -l "$f"\r\ndone\r\n', timeoutSecs: 300 }
+                { id: 's3', name: 'report', command: 'echo "hello"\r\nfor f in *.log; do\r\n  wc -l "$f"\r\ndone\r\n', timeoutSecs: 300, category: 'SFTP menu' },
+                { id: 's4', name: 'uptime', command: 'uptime', timeoutSecs: 300 }
               ]);
             case 'terminal_open': {
               const sid = ++nextTerminal;
@@ -614,24 +616,22 @@ test('Open falls back to a read-only preview for a binary file the editor refuse
   await expect(page.getByRole('dialog', { name: 'Edit /photo.png' })).toHaveCount(0);
 });
 
-test('"Run snippet…" on a file offers its {{file}} snippets in a searchable picker and runs one, path substituted', async ({ page }) => {
+test('a file\'s right-click menu has the SFTP menu snippets that take a file, in their submenu, and runs one with the path', async ({ page }) => {
   await boot(page);
   await page.getByTitle('files on web-1').click();
   const remotePane = page.getByRole('region', { name: 'web-1', exact: true });
   await expect(remotePane.getByText('app.log')).toBeVisible();
 
   await remotePane.getByTitle('app.log').click({ button: 'right' });
-
-  await page.getByRole('menu').getByRole('menuitem', { name: 'Run snippet…' }).click();
-
-  // Only those that take the file: "disk free" has no {{file}}, so it belongs to the
-  // empty-space picker instead. Typing narrows the list; Enter runs the top match.
-  const picker = page.getByRole('dialog', { name: 'Run a snippet on app.log' });
-  await expect(picker.getByRole('button', { name: /extract/ })).toBeVisible();
-  await expect(picker.getByRole('button', { name: /disk free/ })).toHaveCount(0);
-  await picker.getByRole('textbox').fill('extr');
-  await page.keyboard.press('Enter');
-  await expect(picker).toHaveCount(0);
+  const menu = page.getByRole('menu').first();
+  // Only the submenu with a {{file}} snippet: "disk free" and "report" don't take one.
+  await expect(menu.getByRole('menuitem', { name: 'Snippets' })).toHaveCount(0);
+  await menu.getByRole('menuitem', { name: 'Archives' }).hover();
+  const submenu = page.getByRole('menu', { name: 'Archives' });
+  await expect(submenu.getByRole('menuitem')).toHaveText(['extract']);
+  await page.screenshot({ path: 'test-results/sftp-snippet-submenu.png' });
+  await submenu.getByRole('menuitem', { name: 'extract' }).click();
+  await expect(page.getByRole('menu')).toHaveCount(0);
 
   // Picking it opens the drawer (one gesture) and runs the command there, after the
   // drawer's own `cd` — with the clicked path shell-quoted in place of {{file}}.
@@ -640,23 +640,24 @@ test('"Run snippet…" on a file offers its {{file}} snippets in a searchable pi
     .toContain("tar -xf '/app.log'");
 });
 
-test('"Run snippet here…" on empty space offers the snippets without placeholders and runs one in this folder', async ({ page }) => {
-  await boot(page);
+async function openEmptySpaceMenu(page: Page): Promise<void> {
   await page.getByTitle('files on web-1').click();
-  const remotePane = page.getByRole('region', { name: 'web-1', exact: true });
-  await expect(remotePane.getByText('config.yml')).toBeVisible();
-
+  await expect(page.getByRole('region', { name: 'web-1', exact: true }).getByText('config.yml')).toBeVisible();
   const region = page.getByRole('region', { name: 'web-1 file list' });
   const box = await region.boundingBox();
   await region.click({ button: 'right', position: { x: 10, y: (box?.height ?? 200) - 10 } });
+}
 
-  await page.getByRole('menu').getByRole('menuitem', { name: 'Run snippet here…' }).click();
+test('empty space\'s right-click menu has the SFTP menu snippets without placeholders, run in this folder', async ({ page }) => {
+  await boot(page);
+  await openEmptySpaceMenu(page);
 
-  // Only what doesn't need a file: "extract" wants {{file}}, so it isn't offered here.
-  const picker = page.getByRole('dialog', { name: 'Run a snippet in this folder' });
-  await expect(picker.getByRole('button', { name: /disk free/ })).toBeVisible();
-  await expect(picker.getByRole('button', { name: /extract/ })).toHaveCount(0);
-  await picker.getByRole('button', { name: /disk free/ }).click();
+  // "extract" wants {{file}} and "uptime" isn't in the SFTP menu category.
+  await expect(page.getByRole('menu').first().getByRole('menuitem', { name: 'Archives' })).toHaveCount(0);
+  await page.getByRole('menu').first().getByRole('menuitem', { name: 'Snippets' }).click();
+  const submenu = page.getByRole('menu', { name: 'Snippets' });
+  await expect(submenu.getByRole('menuitem')).toHaveText(['disk free', 'report']);
+  await submenu.getByRole('menuitem', { name: 'disk free' }).click();
 
   await expect
     .poll(() => page.evaluate(() => (window as unknown as { __terminalCommands: string[] }).__terminalCommands))
@@ -665,15 +666,9 @@ test('"Run snippet here…" on empty space offers the snippets without placehold
 
 test('a multi-line snippet saved with Windows line ends is typed into the drawer with Linux ones', async ({ page }) => {
   await boot(page);
-  await page.getByTitle('files on web-1').click();
-  const remotePane = page.getByRole('region', { name: 'web-1', exact: true });
-  await expect(remotePane.getByText('config.yml')).toBeVisible();
-
-  const region = page.getByRole('region', { name: 'web-1 file list' });
-  const box = await region.boundingBox();
-  await region.click({ button: 'right', position: { x: 10, y: (box?.height ?? 200) - 10 } });
-  await page.getByRole('menu').getByRole('menuitem', { name: 'Run snippet here…' }).click();
-  await page.getByRole('dialog', { name: 'Run a snippet in this folder' }).getByRole('button', { name: /report/ }).click();
+  await openEmptySpaceMenu(page);
+  await page.getByRole('menu').first().getByRole('menuitem', { name: 'Snippets' }).hover();
+  await page.getByRole('menu', { name: 'Snippets' }).getByRole('menuitem', { name: 'report' }).click();
 
   // One line each, as typed — no `\r` (each would be one more Enter), no empty lines.
   await expect

@@ -23,6 +23,13 @@ function snippet(overrides: Partial<Snippet> = {}): Snippet {
 }
 
 describe('loadSnippets', () => {
+  it('keeps a category and submenu through a save; a snippet without them stays without', async () => {
+    const tail: Snippet = { id: 'a', name: 'tail', command: 'tail {{file}}', timeoutSecs: 30, category: 'SFTP menu', submenu: 'Logs' };
+    const df: Snippet = { id: 'b', name: 'df', command: 'df -h', timeoutSecs: 30 };
+    await saveSnippets([tail, df], path);
+    expect(await loadSnippets(path)).toEqual([tail, df]);
+  });
+
   it('a missing file yields an empty list', async () => {
     expect(await loadSnippets(path)).toEqual([]);
   });
