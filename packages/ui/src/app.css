@@ -9,26 +9,30 @@
    the accent is a contrast inversion (ink on light, paper on dark); the only
    chromatic tokens are the server-state colours, each tuned to clear AA on both
    --surface and --bg. */
+/* Light: one cool slate hue throughout — the ink (text, accent) carries the same tint as
+   the surfaces and borders, so nothing reads as neutral grey on blue-grey. Fields are a
+   faint well (lighter than before, so they don't look disabled) and borders are their
+   own step, apart from the fields. Faint text still clears ~3:1 on white. */
 :root[data-theme='light'] {
-  --bg: #eaeff5;
+  --bg: #f2f4f7;
   --surface: #ffffff;
-  --surface-raised: #fcfdfe;
-  --surface-inset: #dde3ec;
-  --text: #212121;
-  --text-muted: #5b6066;
-  --text-faint: #aeb7c2;
-  --border: #dde3ec;
-  --border-strong: #aeb7c2;
-  --accent: #212121;
+  --surface-raised: #ffffff;
+  --surface-inset: #eceff3;
+  --text: #1b212b;
+  --text-muted: #525c69;
+  --text-faint: #8a94a2;
+  --border: #e0e4ea;
+  --border-strong: #c3cad4;
+  --accent: #1b212b;
   --accent-fg: #ffffff;
-  --focus-ring: rgba(33, 33, 33, 0.4);
-  --glass: rgba(255, 255, 255, 0.8);
-  --overlay: rgba(33, 33, 33, 0.4);
-  --status-ok: #1e824c;
-  --status-warn: #b7791f;
-  --status-crit: #c0392b;
-  --status-off: #6e7681;
-  --shadow-soft: 0 10px 30px -12px rgba(33, 33, 33, 0.18);
+  --focus-ring: rgba(27, 33, 43, 0.35);
+  --glass: rgba(255, 255, 255, 0.85);
+  --overlay: rgba(15, 20, 28, 0.32);
+  --status-ok: #18794a;
+  --status-warn: #a7650f;
+  --status-crit: #c23a2e;
+  --status-off: #7a8494;
+  --shadow-soft: 0 10px 30px -12px rgba(15, 23, 42, 0.16);
   /* A side panel next to the terminal (the AI helper), and the fields, bubbles and
      code blocks in it: on light a sunken well reads as a field. */
   --surface-panel: var(--surface-raised);
