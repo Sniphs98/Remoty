@@ -1,8 +1,8 @@
 <script lang="ts">
   // Add/edit form for a remote-desktop connection profile. Validation mirrors
   // `remoteDesktopForm.ts`'s `formToInput`; on submit the parent persists + refreshes,
-  // and a rejected save surfaces inline without closing. RDP or VNC, picked at the top:
-  // the right-hand card then shows that protocol's settings.
+  // and a rejected save surfaces inline without closing. RDP or VNC is chosen before it
+  // opens (the "New connection" menu); the right-hand card shows that protocol's settings.
   import { onMount } from 'svelte';
   import type { RemoteDesktopConnectionInputDto } from '$lib/bindings';
   import { Button, Icon } from '$lib/theme';
@@ -134,26 +134,6 @@
         </span>
       </div>
     <div class="space-y-3.5 border-t border-default px-4 pb-4 pt-4">
-      <!-- What kind of remote desktop: the first thing to choose — the rest follows it. -->
-      <div class="space-y-1">
-        <span class="block text-xs font-medium text-muted">Protocol</span>
-        <div class="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Protocol">
-          {#each [['rdp', 'RDP', 'Windows Remote Desktop'], ['vnc', 'VNC', 'Linux, macOS and others']] as const as [value, text, hint] (value)}
-            <button
-              type="button"
-              role="radio"
-              aria-checked={fields.protocol === value}
-              class="rounded-lg border px-3 py-2 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus
-                {fields.protocol === value ? 'border-accent bg-surface-inset' : 'border-default hover:border-strong'}"
-              onclick={() => (fields.protocol = value)}
-            >
-              <span class="block text-sm font-medium {fields.protocol === value ? 'text-fg' : 'text-muted'}">{text}</span>
-              <span class="block truncate text-[11px] text-faint">{hint}</span>
-            </button>
-          {/each}
-        </div>
-      </div>
-
       <div class="grid grid-cols-2 gap-3">
         <label class={label}>
           <span>Name</span>

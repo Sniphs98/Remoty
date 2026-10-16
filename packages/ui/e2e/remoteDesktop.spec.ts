@@ -153,6 +153,7 @@ test('create, edit, connect to, and delete an RDP connection', async ({ page }) 
   // Two "New connection" buttons while the list is empty (toolbar + empty state),
   // same as the Snippets screen.
   await page.getByRole('button', { name: 'New connection' }).first().click();
+  await page.getByRole('menuitem', { name: 'New RDP connection' }).click();
   const editor = page.getByRole('dialog', { name: 'New RDP connection' });
   // `exact` — a substring match on "Name" would also hit "Hostname / IP" and "Username".
   await editor.getByLabel('Name', { exact: true }).fill('office-pc');
@@ -191,6 +192,7 @@ test('address, user and password can each come from 1Password, switched per fiel
   await boot(page);
   await page.getByRole('button', { name: 'Switch to Remote Desktop' }).click();
   await page.getByRole('button', { name: 'New connection' }).first().click();
+  await page.getByRole('menuitem', { name: 'New RDP connection' }).click();
   const editor = page.getByRole('dialog', { name: 'New RDP connection' });
   await editor.getByLabel('Name', { exact: true }).fill('office-pc');
 
@@ -251,6 +253,7 @@ test('a connection through an SSH host, with display and device settings', async
   });
   await page.getByRole('button', { name: 'Switch to Remote Desktop' }).click();
   await page.getByRole('button', { name: 'New connection' }).first().click();
+  await page.getByRole('menuitem', { name: 'New RDP connection' }).click();
   const editor = page.getByRole('dialog', { name: 'New RDP connection' });
   await editor.getByLabel('Name', { exact: true }).fill('behind-bastion');
   await editor.getByLabel('Hostname / IP').fill('10.20.0.5');
@@ -309,6 +312,7 @@ test('a launch that fails says why', async ({ page }) => {
   await boot(page, { launch: { error: 'Remote Desktop (mstsc.exe) was not found' } });
   await page.getByRole('button', { name: 'Switch to Remote Desktop' }).click();
   await page.getByRole('button', { name: 'New connection' }).first().click();
+  await page.getByRole('menuitem', { name: 'New RDP connection' }).click();
   const editor = page.getByRole('dialog', { name: 'New RDP connection' });
   await editor.getByLabel('Name', { exact: true }).fill('office-pc');
   await editor.getByLabel('Hostname / IP').fill('10.0.0.5');
@@ -323,6 +327,7 @@ test('Connect opens the remote desktop in a tab, with the external app as the wa
   await boot(page);
   await page.getByRole('button', { name: 'Switch to Remote Desktop' }).click();
   await page.getByRole('button', { name: 'New connection' }).first().click();
+  await page.getByRole('menuitem', { name: 'New RDP connection' }).click();
   const editor = page.getByRole('dialog', { name: 'New RDP connection' });
   await editor.getByLabel('Name', { exact: true }).fill('office-pc');
   await editor.getByLabel('Hostname / IP').fill('10.0.0.5');

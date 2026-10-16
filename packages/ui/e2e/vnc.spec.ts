@@ -120,9 +120,8 @@ async function boot(page: Page, opts: { connections?: Rec[]; vncUrl?: string } =
 test('a VNC connection is made with the protocol switch, with its own settings', async ({ page }) => {
   await boot(page);
   await page.getByRole('button', { name: 'New connection' }).first().click();
-  let editor = page.getByRole('dialog', { name: 'New RDP connection' });
-  await editor.getByRole('radio', { name: 'VNC' }).click();
-  editor = page.getByRole('dialog', { name: 'New VNC connection' });
+  await page.getByRole('menuitem', { name: 'New VNC connection' }).click();
+  const editor = page.getByRole('dialog', { name: 'New VNC connection' });
 
   // RDP's domain and display & devices give way to the viewer's settings.
   await expect(editor.getByLabel('Domain')).toHaveCount(0);

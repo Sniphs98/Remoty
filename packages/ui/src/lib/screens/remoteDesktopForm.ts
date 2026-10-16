@@ -68,11 +68,11 @@ const SETTING_DEFAULTS = {
   viewOnly: false
 } as const;
 
-export function emptyForm(): RemoteDesktopFormFields {
+export function emptyForm(protocol: 'rdp' | 'vnc' = 'rdp'): RemoteDesktopFormFields {
   return {
     id: crypto.randomUUID(),
     name: '',
-    protocol: 'rdp',
+    protocol,
     hostname: '',
     port: '',
     username: '',
