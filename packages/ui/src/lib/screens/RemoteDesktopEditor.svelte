@@ -1,8 +1,8 @@
 <script lang="ts">
   // Add/edit form for a remote-desktop connection profile. Validation mirrors
   // `remoteDesktopForm.ts`'s `formToInput`; on submit the parent persists + refreshes,
-  // and a rejected save surfaces inline without closing. Only 'rdp' is reachable this
-  // round (see remoteDesktopForm.ts) — no protocol picker yet.
+  // and a rejected save surfaces inline without closing. RDP or VNC is chosen before it
+  // opens (the "New connection" menu); the right-hand card shows that protocol's settings.
   import { onMount } from 'svelte';
   import type { RemoteDesktopConnectionInputDto } from '$lib/bindings';
   import { Button, Icon } from '$lib/theme';
@@ -15,7 +15,7 @@
   import { remoteDesktopConnections } from '$lib/stores/remoteDesktop';
   import { rdpKeptFolders } from '$lib/stores/dashboardLayout';
   import { folderNames } from './dashboardSections';
-  import { describeSettings, formToInput, type RemoteDesktopFormFields } from './remoteDesktopForm';
+  import { defaultPort, describeSettings, formToInput, type RemoteDesktopFormFields } from './remoteDesktopForm';
 
   let {
     mode,
@@ -86,6 +86,9 @@
   // Shown under the section's title: what's set, in one line.
   const settingsSummary = $derived(describeSettings(fields).join(' · '));
 
+  const isVnc = $derived(fields.protocol === 'vnc');
+  const title = $derived(`${mode === 'add' ? 'New' : 'Edit'} ${isVnc ? 'VNC' : 'RDP'} connection`);
+
   // Windows asks before sharing drives from a .rdp file (see core/rdp/launch.ts).
   const onWindows = typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent);
 
@@ -102,7 +105,7 @@
 </script>
 
 <Modal
-  label={mode === 'add' ? 'New RDP connection' : 'Edit RDP connection'}
+  label={title}
   size="large"
   onClose={onCancel}
   dirty={dirty && !saving}
@@ -116,7 +119,7 @@
     class="flex min-h-0 flex-col"
   >
     <header class="border-b border-default px-5 py-3.5">
-      <h2 class="text-sm font-semibold">{mode === 'add' ? 'New RDP connection' : 'Edit RDP connection'}</h2>
+      <h2 class="text-sm font-semibold">{title}</h2>
     </header>
 
     <!-- Two columns side by side where there's room (screens are wider than tall):
@@ -182,7 +185,7 @@
               spellcheck="false"
             />
           {:else}
-            <input id="rdp-port" bind:value={fields.port} inputmode="numeric" class={field} placeholder="3389" />
+            <input id="rdp-port" bind:value={fields.port} inputmode="numeric" class={field} placeholder={String(defaultPort(fields.protocol))} />
           {/if}
         </div>
       </div>
@@ -199,13 +202,13 @@
       {#if fields.viaHost}
         <p class="-mt-2 text-xs text-faint">
           Hostname and port are as seen from {fields.viaHost}. The connection runs through an SSH tunnel, so the
-          remote machine's RDP port doesn't need to be reachable from here.
+          remote machine's {isVnc ? 'VNC' : 'RDP'} port doesn't need to be reachable from here.
         </p>
       {/if}
 
       <div class="border-t border-default pt-3.5 text-[11px] font-semibold uppercase tracking-wider text-faint">Sign-in</div>
 
-      <div class="grid grid-cols-2 gap-3">
+      <div class="grid gap-3 {isVnc ? '' : 'grid-cols-2'}">
         <div class={label}>
           <div class={labelRow}>
             <label for="rdp-username">Username</label>
@@ -215,10 +218,11 @@
             id="rdp-username"
             bind:value={fields.username}
             class="{field} {fields.usernameFrom1P ? 'font-mono' : ''}"
-            placeholder={fields.usernameFrom1P ? 'op://Servers/office-pc/username' : 'admin'}
+            placeholder={fields.usernameFrom1P ? 'op://Servers/office-pc/username' : isVnc ? 'Only if the server asks for one' : 'admin'}
             spellcheck="false"
           />
         </div>
+        {#if !isVnc}
         <div class={label}>
           <div class={labelRow}>
             <label for="rdp-domain">Domain</label>
@@ -232,6 +236,7 @@
             spellcheck="false"
           />
         </div>
+        {/if}
       </div>
 
       <div class={label}>
@@ -260,7 +265,7 @@
         {/if}
       </div>
 
-      {#if fields.hostnameFrom1P || fields.portFrom1P || fields.usernameFrom1P || fields.domainFrom1P || fields.passwordFrom1P}
+      {#if fields.hostnameFrom1P || fields.portFrom1P || fields.usernameFrom1P || (!isVnc && fields.domainFrom1P) || fields.passwordFrom1P}
         <p class="-mt-2 text-xs text-faint">
           Fields marked 1Password take a secret reference and are read from 1Password when connecting (needs the
           1Password CLI). In 1Password: right-click a field → Copy Secret Reference.
@@ -270,6 +275,48 @@
     </div>
     </section>
 
+      {#if isVnc}
+      <section class={card} aria-labelledby="vnc-viewer-title">
+        <div class={cardHeader}>
+          <span class={cardIcon}><Icon name="monitor" size={15} /></span>
+          <span class="min-w-0 flex-1">
+            <span id="vnc-viewer-title" class="block text-sm font-medium">Viewer</span>
+            <span class="block truncate text-xs text-faint">{settingsSummary}</span>
+          </span>
+        </div>
+        <div class="space-y-4 border-t border-default px-4 pb-4 pt-4">
+          <div class="divide-y divide-[var(--border)] rounded-lg bg-surface-inset/60">
+            <div class={row}>
+              <div class="min-w-0">
+                <p class="text-sm">View only</p>
+                <p class="text-xs text-muted">Watch the screen without sending keyboard or mouse.</p>
+              </div>
+              <Switch bind:checked={fields.viewOnly} label="View only" />
+            </div>
+            <div class={row}>
+              <div class="min-w-0">
+                <p class="text-sm">Share the clipboard</p>
+                <p class="text-xs text-muted">Text copied there lands here; yours is sent when you switch to the tab.</p>
+              </div>
+              <Switch bind:checked={fields.clipboard} label="Share the clipboard" />
+            </div>
+            <div class={row}>
+              <div class="min-w-0">
+                <p class="text-sm">Resize with the window</p>
+                <p class="text-xs text-muted">
+                  Asks the server to change its resolution to fit the tab. Not every server can; the picture is
+                  scaled to fit either way.
+                </p>
+              </div>
+              <Switch bind:checked={fields.dynamicResolution} label="Resize with the window" />
+            </div>
+          </div>
+          <p class="text-xs text-faint">
+            The built-in viewer signs in with the password saved here; without one it asks when the server wants it.
+          </p>
+        </div>
+      </section>
+      {:else}
       <section class={card} aria-labelledby="rdp-display-devices-title">
         <div class={cardHeader}>
           <span class={cardIcon}><Icon name="monitor" size={15} /></span>
@@ -347,6 +394,7 @@
           </div>
         </div>
       </section>
+      {/if}
     </div>
 
     {#if error}

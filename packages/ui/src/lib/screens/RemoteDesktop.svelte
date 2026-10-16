@@ -1,8 +1,7 @@
 <script lang="ts">
-  // Remote Desktop selector screen: list + add/edit/delete RDP connection profiles
-  // (round-tripping through remote-desktop.toml), and "Connect" launches the OS's
-  // native RDP client as its own external window — no in-app session/tab, unlike
-  // Terminal/SFTP. VNC is a later pass. The tiles sit in folders like the dashboard's
+  // Remote Desktop selector screen: list + add/edit/delete RDP and VNC connection
+  // profiles (round-tripping through remote-desktop.toml). "Connect" opens one in a tab
+  // (IronRDP or noVNC), "External" in the OS's own client. The tiles sit in folders like the dashboard's
   // host cards (dashboardSections.ts): collapsible sections, "New folder", drag a tile
   // onto a section to move it, export per folder.
   import { onMount } from 'svelte';
@@ -15,7 +14,8 @@
     deleteRemoteDesktopConnection,
     exportRdpProfiles,
     previewRdpProfilesImport,
-    rdpLaunch
+    rdpLaunch,
+    vncLaunch
   } from '$lib/ipc/commands';
   import { remoteDesktopConnections } from '$lib/stores/remoteDesktop';
   import { sessions } from '$lib/stores/sessions';
@@ -38,9 +38,10 @@
   import ConnectionImportDialog from './ConnectionImportDialog.svelte';
   import { importSummary } from './connectionImport';
   import Modal from '$lib/components/Modal.svelte';
+  import ContextMenu from '$lib/components/ContextMenu.svelte';
 
   type Dialog =
-    | { kind: 'add' }
+    | { kind: 'add'; protocol: 'rdp' | 'vnc' }
     | { kind: 'edit'; connection: RemoteDesktopConnectionDto }
     | { kind: 'delete'; connection: RemoteDesktopConnectionDto }
     | { kind: 'newFolder' }
@@ -192,19 +193,28 @@
     }
   }
 
-  /** Opens the connection in a tab inside the app — or goes to its tab if it has one. */
-  function connect(connection: RemoteDesktopConnectionDto): void {
-    const open = $sessions.find((s) => s.kind === 'rdp' && s.rdpConnectionId === connection.id);
-    if (open) activeEntity.activateSession(open.id);
-    else spawnRdpSession(connection.id, connection.name);
+  // "New connection": a menu of the two kinds, so the protocol is chosen up front and the
+  // editor has no switch of its own.
+  let newMenu = $state<{ x: number; y: number } | null>(null);
+  function openNewMenu(e: MouseEvent): void {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    newMenu = { x: r.left, y: r.bottom + 4 };
   }
 
-  /** Opens the connection in the system's Remote Desktop app (mstsc / FreeRDP). */
+  /** Opens the connection in a tab inside the app — or goes to its tab if it has one. */
+  function connect(connection: RemoteDesktopConnectionDto): void {
+    const open = $sessions.find((s) => s.kind === connection.protocol && s.rdpConnectionId === connection.id);
+    if (open) activeEntity.activateSession(open.id);
+    else spawnRdpSession(connection.id, connection.name, connection.protocol);
+  }
+
+  /** Opens the connection in the system's own client: Remote Desktop (mstsc / FreeRDP)
+   *  or whatever VNC viewer handles `vnc://`. */
   async function openExternally(connection: RemoteDesktopConnectionDto): Promise<void> {
     connecting = connection.id;
     notice = null;
     try {
-      const result = await rdpLaunch(connection.id);
+      const result = connection.protocol === 'vnc' ? await vncLaunch(connection.id) : await rdpLaunch(connection.id);
       if (result?.notice) showNotice(result.notice);
     } catch (e) {
       lastError.set(message(e));
@@ -276,7 +286,7 @@
       <Icon name="folder" size={13} />
       New folder
     </button>
-    <button type="button" class={pill} onclick={() => (dialog = { kind: 'add' })}>
+    <button type="button" class={pill} onclick={openNewMenu} aria-haspopup="menu">
       <Icon name="plus" size={13} />
       New connection
     </button>
@@ -290,8 +300,8 @@
   {#if $remoteDesktopConnections.length === 0 && sections.length === 0}
     <div class="flex flex-1 flex-col items-center justify-center gap-2 py-20 text-center">
       <p class="font-medium">No connections yet</p>
-      <p class="text-sm text-muted">Save an RDP connection to launch it in one click.</p>
-      <button type="button" class="{pill} mt-2" onclick={() => (dialog = { kind: 'add' })}>
+      <p class="text-sm text-muted">Save an RDP or VNC connection to launch it in one click.</p>
+      <button type="button" class="{pill} mt-2" onclick={openNewMenu} aria-haspopup="menu">
         <Icon name="plus" size={13} />
         New connection
       </button>
@@ -446,8 +456,8 @@
               <button
                 type="button"
                 class={pill}
-                title="Open {connection.name} in the Remote Desktop app"
-                aria-label="Open {connection.name} in the Remote Desktop app"
+                title="Open {connection.name} in {connection.protocol === 'vnc' ? 'a VNC viewer' : 'the Remote Desktop app'}"
+                aria-label="Open {connection.name} in {connection.protocol === 'vnc' ? 'a VNC viewer' : 'the Remote Desktop app'}"
                 disabled={connecting === connection.id}
                 onclick={() => openExternally(connection)}
               >
@@ -487,8 +497,20 @@
         </Surface>
 {/snippet}
 
+{#if newMenu}
+  <ContextMenu
+    x={newMenu.x}
+    y={newMenu.y}
+    items={[
+      { label: 'New RDP connection', icon: 'monitor', onSelect: () => (dialog = { kind: 'add', protocol: 'rdp' }) },
+      { label: 'New VNC connection', icon: 'monitor', onSelect: () => (dialog = { kind: 'add', protocol: 'vnc' }) }
+    ]}
+    onClose={() => (newMenu = null)}
+  />
+{/if}
+
 {#if dialog?.kind === 'add'}
-  <RemoteDesktopEditor mode="add" initial={emptyForm()} onSubmit={submit} onCancel={() => (dialog = null)} />
+  <RemoteDesktopEditor mode="add" initial={emptyForm(dialog.protocol)} onSubmit={submit} onCancel={() => (dialog = null)} />
 {:else if dialog?.kind === 'edit'}
   {@const connection = dialog.connection}
   <RemoteDesktopEditor

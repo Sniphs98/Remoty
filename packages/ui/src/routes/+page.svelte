@@ -18,6 +18,7 @@
   import TerminalView from '$lib/screens/TerminalView.svelte';
   import SftpView from '$lib/screens/SftpView.svelte';
   import RdpView from '$lib/screens/RdpView.svelte';
+  import VncView from '$lib/screens/VncView.svelte';
 
   onMount(async () => {
     try {
@@ -46,6 +47,8 @@
         <TerminalView session={s} active={activeSessionId === s.id} />
       {:else if s.kind === 'rdp'}
         <RdpView session={s} active={activeSessionId === s.id} />
+      {:else if s.kind === 'vnc'}
+        <VncView session={s} active={activeSessionId === s.id} />
       {:else}
         <SftpView session={s} active={activeSessionId === s.id} />
       {/if}

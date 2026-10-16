@@ -5,11 +5,11 @@ import type { IconName, Status } from '$lib/theme';
 // Stage 3 makes the sessions real (live PTY / SFTP). Ids come from one monotonic
 // space so a closed tab's id is never reused and terminal/SFTP ids never collide in
 // the frontend.
-export type SessionKind = 'terminal' | 'sftp' | 'rdp';
+export type SessionKind = 'terminal' | 'sftp' | 'rdp' | 'vnc';
 
 /** The icon a session's row and palette entry show for its kind. */
 export function sessionIcon(kind: SessionKind): IconName {
-  return kind === 'rdp' ? 'monitor' : kind;
+  return kind === 'rdp' || kind === 'vnc' ? 'monitor' : kind;
 }
 export type SessionStatus = 'connecting' | 'connected' | 'failed' | 'unknown';
 
@@ -30,11 +30,14 @@ export interface Session {
   /** The backend public session id, set once `terminal_open` resolves (tech-gui.md
    *  §3.4). Undefined while connecting; the id crossing IPC is always this public id. */
   termId?: number;
-  /** For an `rdp` session: the remote desktop connection profile it shows. */
+  /** For an `rdp` or `vnc` session: the remote desktop connection profile it shows. */
   rdpConnectionId?: string;
   /** For a local terminal (a shell on this machine, no host): its profile id — see
    *  `TerminalProfileDto`. `hostName` then holds the profile's label. */
   localProfileId?: string;
+  /** A password typed for this tab only (1Password couldn't give the host's): used to
+   *  sign in once, kept in memory with the tab, never saved. */
+  oneTimePassword?: string;
 }
 
 /** The visible session label: just the host name. The type (terminal/SFTP) is already
@@ -54,7 +57,7 @@ function createSessions() {
   let nextId = 1;
   return {
     subscribe,
-    spawn(kind: SessionKind, hostName: string, extra: Pick<Session, 'rdpConnectionId' | 'localProfileId'> = {}): Session {
+    spawn(kind: SessionKind, hostName: string, extra: Pick<Session, 'rdpConnectionId' | 'localProfileId' | 'oneTimePassword'> = {}): Session {
       const session: Session = { id: nextId++, kind, hostName, status: 'connecting', ...extra };
       update((list) => [...list, session]);
       return session;

@@ -240,3 +240,43 @@ describe('1Password reference', () => {
     expect(fromOnePassword({ hostname: 'pc', portRef: 'op://a/b/port', domain: 'op://a/b/domain' })).toBe('Port and domain');
   });
 });
+
+describe('VNC in the form', () => {
+  const vnc = (over: Partial<RemoteDesktopFormFields> = {}): RemoteDesktopFormFields => ({
+    ...emptyForm(),
+    name: 'pi',
+    hostname: '10.0.0.9',
+    protocol: 'vnc',
+    ...over
+  });
+
+  it('defaults the port to 5900', () => {
+    const r = formToInput(vnc());
+    expect(r.ok && r.input.port).toBe(5900);
+  });
+
+  it("saves view only, clipboard and resizing — and none of RDP's settings or the domain", () => {
+    const r = formToInput(vnc({ viewOnly: true, clipboard: false, dynamicResolution: true, domain: 'CORP', drives: true, display: 'fullscreen' }));
+    if (!r.ok) throw new Error(r.error);
+    expect(r.input).toMatchObject({ protocol: 'vnc', viewOnly: true, clipboard: false, dynamicResolution: true });
+    expect(r.input.domain).toBeUndefined();
+    expect(r.input.drives).toBeUndefined();
+    expect(r.input.display).toBeUndefined();
+    expect(r.input.audio).toBeUndefined();
+  });
+
+  it("doesn't trip over a hidden RDP field left half-filled", () => {
+    expect(formToInput(vnc({ display: 'window', width: 'x', domainFrom1P: true, domain: 'nope' })).ok).toBe(true);
+  });
+
+  it('round-trips view only through a saved connection', () => {
+    const r = formToInput(vnc({ viewOnly: true }));
+    if (!r.ok) throw new Error(r.error);
+    expect(formFromConnection({ ...r.input, hasPassword: false }).viewOnly).toBe(true);
+  });
+
+  it('describes its own settings', () => {
+    expect(describeSettings({ protocol: 'vnc', viewOnly: true, clipboard: true, audio: 'off' })).toEqual(['View only', 'Clipboard']);
+    expect(describeSettings({ protocol: 'vnc', clipboard: false })).toEqual(['Viewer defaults']);
+  });
+});

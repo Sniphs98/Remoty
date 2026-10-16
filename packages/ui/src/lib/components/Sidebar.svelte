@@ -218,11 +218,10 @@
                 onclick={() => activeEntity.activateSession(s.id)}
               >
                 {#if $sidebarCollapsed}
-                  <span class="relative inline-flex shrink-0">
+                  <!-- The status dot centred under the icon, like the macOS Dock's. -->
+                  <span class="flex shrink-0 flex-col items-center gap-1">
                     <Icon name={sessionIcon(s.kind)} />
-                    <span class="absolute -right-1 -top-1">
-                      <StatusDot status={sessionStatusDot[s.status]} size={7} />
-                    </span>
+                    <StatusDot status={sessionStatusDot[s.status]} size={6} />
                   </span>
                 {:else}
                   <StatusDot status={sessionStatusDot[s.status]} />

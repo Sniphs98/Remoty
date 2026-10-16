@@ -26,6 +26,16 @@ describe('rdpConnectSteps', () => {
   });
 });
 
+describe('rdpConnectSteps for VNC', () => {
+  it('has no step of securing the connection', () => {
+    expect(rdpConnectSteps({ onePassword: false, server: 'x', protocol: 'vnc' }).map((s) => s.stage)).toEqual([
+      'viewer',
+      'reach',
+      'signin'
+    ]);
+  });
+});
+
 describe('advance', () => {
   const steps = rdpConnectSteps({ onePassword: false, server: 'x' });
 

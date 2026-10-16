@@ -13,9 +13,12 @@ import type { GuiState } from '../state/guiState.js';
  * response — see `packages/ui/src/lib/bindings.ts`'s `Channel` class.
  */
 export function registerTerminalIpc(ipcMain: IpcMain, state: GuiState): void {
-  ipcMain.handle('terminal_open', async (_event, hostName: string, cols: number, rows: number, progressKey?: string) => {
-    const host = state.hostByName(hostName);
-    if (host === undefined) throw toCommandError(new Error(`unknown host: ${hostName}`));
+  ipcMain.handle('terminal_open', async (_event, hostName: string, cols: number, rows: number, progressKey?: string, oneTimePassword?: string) => {
+    const saved = state.hostByName(hostName);
+    if (saved === undefined) throw toCommandError(new Error(`unknown host: ${hostName}`));
+    // A password typed in the tab (1Password couldn't give the host's) stands in for the
+    // saved one and its 1Password reference, for this connection only.
+    const host = oneTimePassword ? { ...saved, password: oneTimePassword, passwordRef: undefined } : saved;
     try {
       const id = state.allocateSessionId();
       // Each step of connecting, for the tab's "connecting" screen (`progressKey` names the tab).

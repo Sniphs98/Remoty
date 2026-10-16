@@ -5,7 +5,7 @@ import { app, BrowserWindow, dialog, shell, type IpcMain } from 'electron';
 import { loadRemoteDesktopConnections, type RemoteDesktopConnection } from '../core/config/remoteDesktop.js';
 import { RdpGateway } from '../core/rdp/gateway.js';
 import { checkCertificate, forgetCertificate } from '../core/rdp/knownCerts.js';
-import { resolveConnection } from '../core/rdp/password.js';
+import { resolveForSignIn } from '../core/rdp/password.js';
 import { saveReceivedFile } from '../core/rdp/savedFiles.js';
 import { SshSession } from '../core/ssh/session.js';
 import {
@@ -60,14 +60,13 @@ export function registerRdpEmbeddedIpc(ipcMain: IpcMain, state: GuiState): void 
       if (saved.protocol !== 'rdp') throw new Error(`connection '${saved.name}' is not an RDP connection`);
       // Address, user and password from 1Password where the profile says so.
       progress('onePassword');
-      const connection = await resolveConnection(saved);
-      // A profile without a stored password (or user) asks in the tab; what's typed
-      // there is used for this connection only, and wins over the profile's.
-      const username = typed?.username || connection.username;
-      const password = typed?.password || connection.password;
-      const domain = typed ? typed.domain || undefined : connection.domain;
+      // A profile without a stored password (or user) asks in the tab — and so does one
+      // whose sign-in 1Password couldn't give. What's typed there is used for this
+      // connection only, never saved, and 1Password isn't asked again for it.
+      const { connection, signInProblem } = await resolveForSignIn(saved, typed);
+      const { username, password, domain } = connection;
       if (!username || !password) {
-        return { kind: 'credentials', username: connection.username, domain: connection.domain };
+        return { kind: 'credentials', username, domain, ...(signInProblem ? { reason: signInProblem } : {}) };
       }
 
       const session: OpenSession = {};

@@ -1,0 +1,20 @@
+# Disposable VNC test target — a Debian desktop (XFCE) with a VNC server
+# (consol/debian-xfce-vnc), for trying Remoty's VNC connections against a real VNC
+# server. See README.md next to this file. Never expose it beyond your own machine — the
+# password is fixed and public.
+name: remoty-vnc
+services:
+  desktop:
+    image: consol/debian-xfce-vnc
+    container_name: remoty-vnc-test-target
+    environment:
+      # Classic VNC password sign-in only uses the first 8 characters.
+      VNC_PW: 'remoty'
+      VNC_RESOLUTION: '1600x900'
+    ports:
+      # Not 5900/5901: this machine may run a VNC server of its own.
+      - '127.0.0.1:15901:5901'
+      # The image's own browser viewer (noVNC), to compare against.
+      - '127.0.0.1:16901:6901'
+    shm_size: '256m'
+    restart: 'no'

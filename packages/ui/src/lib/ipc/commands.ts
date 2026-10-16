@@ -36,6 +36,9 @@ import type {
   RdpLaunchResultDto,
   RemoteDesktopConnectionDto,
   RemoteDesktopConnectionInputDto,
+  VncEmbeddedSessionDto,
+  VncEmbeddedStatusDto,
+  VncLaunchResultDto,
   TerminalBytes,
   UpdateConfigDto,
   UpdateInfoDto
@@ -90,9 +93,10 @@ export async function terminalOpen(
   cols: number,
   rows: number,
   onOutput: Channel<TerminalBytes>,
-  progressKey?: string
+  progressKey?: string,
+  oneTimePassword?: string
 ): Promise<number> {
-  const res = await commands.terminalOpen(hostName, cols, rows, onOutput, progressKey);
+  const res = await commands.terminalOpen(hostName, cols, rows, onOutput, progressKey, oneTimePassword);
   if (res.status === 'error') throw new Error(res.error.message);
   return res.data;
 }
@@ -526,6 +530,32 @@ export async function rdpEmbeddedStatus(token: string): Promise<RdpEmbeddedStatu
 export async function rdpEmbeddedClose(token: string): Promise<void> {
   const res = await commands.rdpEmbeddedClose(token);
   if (res.status === 'error') throw new Error(res.error.message);
+}
+
+/** Registers an embedded VNC session with the local gateway and returns what noVNC
+ *  connects with. */
+export async function vncEmbeddedOpen(connectionId: string, progressKey?: string): Promise<VncEmbeddedSessionDto> {
+  const res = await commands.vncEmbeddedOpen(connectionId, progressKey);
+  if (res.status === 'error') throw new Error(res.error.message);
+  return res.data;
+}
+
+export async function vncEmbeddedStatus(token: string): Promise<VncEmbeddedStatusDto> {
+  const res = await commands.vncEmbeddedStatus(token);
+  if (res.status === 'error') throw new Error(res.error.message);
+  return res.data;
+}
+
+export async function vncEmbeddedClose(token: string): Promise<void> {
+  const res = await commands.vncEmbeddedClose(token);
+  if (res.status === 'error') throw new Error(res.error.message);
+}
+
+/** Opens the connection in the OS's VNC viewer (a `vnc://` address). */
+export async function vncLaunch(connectionId: string): Promise<VncLaunchResultDto> {
+  const res = await commands.vncLaunch(connectionId);
+  if (res.status === 'error') throw new Error(res.error.message);
+  return res.data;
 }
 
 /** Asks where to save files copied on a remote desktop; null if cancelled. */

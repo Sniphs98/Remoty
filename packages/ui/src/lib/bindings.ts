@@ -26,10 +26,11 @@ export const commands = {
     cols: number,
     rows: number,
     onOutput: Channel<TerminalBytes>,
-    progressKey?: string
+    progressKey?: string,
+    oneTimePassword?: string
   ): Promise<Result<number, CommandError>> {
     try {
-      const sessionId = (await invoke('terminal_open', hostName, cols, rows, progressKey)) as number;
+      const sessionId = (await invoke('terminal_open', hostName, cols, rows, progressKey, oneTimePassword)) as number;
       onOutput.attach(`terminal-output-${sessionId}`);
       return { status: 'ok', data: sessionId };
     } catch (e) {
@@ -297,6 +298,18 @@ export const commands = {
   },
   async rdpEmbeddedClose(token: string): Promise<Result<null, CommandError>> {
     return call('rdp_embedded_close', token);
+  },
+  async vncEmbeddedOpen(connectionId: string, progressKey?: string): Promise<Result<VncEmbeddedSessionDto, CommandError>> {
+    return call('vnc_embedded_open', connectionId, progressKey);
+  },
+  async vncEmbeddedStatus(token: string): Promise<Result<VncEmbeddedStatusDto, CommandError>> {
+    return call('vnc_embedded_status', token);
+  },
+  async vncEmbeddedClose(token: string): Promise<Result<null, CommandError>> {
+    return call('vnc_embedded_close', token);
+  },
+  async vncLaunch(connectionId: string): Promise<Result<VncLaunchResultDto, CommandError>> {
+    return call('vnc_launch', connectionId);
   },
   async onePasswordStatus(): Promise<Result<OnePasswordStatusDto, CommandError>> {
     return call('onepassword_status');
@@ -673,7 +686,13 @@ export type RdpCredentialsDto = { username: string; password: string; domain?: s
 /** Ready to connect, or first ask for credentials the profile doesn't store. */
 export type RdpEmbeddedOpenDto =
   | ({ kind: 'ready' } & RdpEmbeddedSessionDto)
-  | { kind: 'credentials'; username?: string | null; domain?: string | null };
+  | {
+      kind: 'credentials';
+      username?: string | null;
+      domain?: string | null;
+      /** Why it asks: 1Password couldn't give the sign-in. */
+      reason?: string | null;
+    };
 
 /** What the embedded RDP client needs to connect (`rdp_embedded_open`). */
 export type RdpEmbeddedSessionDto = {
@@ -749,9 +768,24 @@ export type RemoteDesktopConnectionInputDto = RdpSettingsDto & {
   /** The Remote Desktop screen's folder; unset means none. */
   folder?: string | null;
 };
-/** Only `'rdp'` is reachable from the UI for now — `'vnc'` exists so a later pass is
- *  additive, not a migration. */
 export type RemoteDesktopProtocolDto = 'rdp' | 'vnc';
+
+/** What the embedded VNC client (noVNC) connects with (`vnc_embedded_open`). */
+export type VncEmbeddedSessionDto = {
+  token: string;
+  /** The local gateway's WebSocket URL for this session. */
+  url: string;
+  username?: string | null;
+  password?: string | null;
+  /** 1Password couldn't give the sign-in: why, for the tab's own sign-in prompt. */
+  signInProblem?: string | null;
+};
+
+/** Why an embedded VNC session couldn't connect. */
+export type VncEmbeddedStatusDto = { failure?: string | null };
+
+/** What `vnc_launch` resolves with once the external viewer has been asked to open. */
+export type VncLaunchResultDto = { notice?: string | null };
 /** A service detected on a host with its quick-scan metrics. */
 export type ServiceDto = { kind: ServiceKindDto; metrics: ServiceMetricDto[] };
 /** A service kind detected on a host. */

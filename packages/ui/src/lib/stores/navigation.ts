@@ -7,15 +7,15 @@ import { sidebarMode } from './sidebarMode';
 // step (tech-gui.md §2). A spawn appends a session and makes it active (both spawn
 // paths do this); closing the active session falls back to the current mode's home
 // screen (Dashboard or Remote Desktop) so Content is never left pointing at a closed tab.
-export function spawnSession(kind: SessionKind, hostName: string): Session {
-  const session = sessions.spawn(kind, hostName);
+export function spawnSession(kind: SessionKind, hostName: string, extra: { oneTimePassword?: string } = {}): Session {
+  const session = sessions.spawn(kind, hostName, extra);
   activeEntity.activateSession(session.id);
   return session;
 }
 
-/** Opens a remote desktop connection as a tab (the embedded viewer). */
-export function spawnRdpSession(connectionId: string, name: string): Session {
-  const session = sessions.spawn('rdp', name, { rdpConnectionId: connectionId });
+/** Opens a remote desktop connection as a tab (the embedded RDP or VNC viewer). */
+export function spawnRdpSession(connectionId: string, name: string, protocol: 'rdp' | 'vnc' = 'rdp'): Session {
+  const session = sessions.spawn(protocol, name, { rdpConnectionId: connectionId });
   activeEntity.activateSession(session.id);
   return session;
 }

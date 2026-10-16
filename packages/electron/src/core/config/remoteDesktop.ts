@@ -7,10 +7,9 @@ import { getSecretCipher } from './secretCipher.js';
 import { decryptSecret, encryptSecret } from './secretField.js';
 
 /**
- * `remote-desktop.toml` I/O, mirroring `core/config/snippets.ts`'s shape. RDP is the
- * only reachable protocol from the UI for now — `'vnc'` already exists in the type so a
- * later pass is additive, not a migration, but nothing outside this file constructs one
- * yet.
+ * `remote-desktop.toml` I/O, mirroring `core/config/snippets.ts`'s shape. One file for
+ * both protocols: RDP profiles use the `RdpSettings` below, VNC ones `viewOnly` and
+ * `clipboard`.
  */
 
 export type RemoteDesktopProtocol = 'rdp' | 'vnc';

@@ -1,9 +1,9 @@
 // Pure remote-desktop connection form + validation logic, kept free of Svelte
 // components so it is unit-testable; `RemoteDesktopEditor.svelte` renders it. Mirrors
 // `hostForm.ts`'s shape (closest existing analog: name/hostname/port/user/password).
-// Only `'rdp'` is reachable from the UI this round (VNC is a later pass) — the default
-// port and the form fields already key off `protocol` so adding a picker later is a
-// small diff, not a rewrite.
+// One form for both protocols: the default port and which settings are saved key off
+// `protocol` — RDP has display/devices/sound and a domain, VNC view-only, clipboard and
+// resizing with the window.
 
 import type { RemoteDesktopConnectionDto, RemoteDesktopConnectionInputDto, RemoteDesktopProtocolDto } from '$lib/bindings';
 import { isOnePasswordReference, normalizeReference, ONE_PASSWORD_REFERENCE_ERROR } from './onePasswordRef';
@@ -51,6 +51,8 @@ export interface RemoteDesktopFormFields {
   /** Change the remote resolution when the window is resized. */
   dynamicResolution: boolean;
   audio: 'local' | 'remote' | 'off';
+  /** vnc-only: watch, without sending keyboard or mouse. */
+  viewOnly: boolean;
 }
 
 /** What a new profile starts with — the usual client defaults, spelled out. */
@@ -62,14 +64,15 @@ const SETTING_DEFAULTS = {
   clipboard: true,
   drives: false,
   dynamicResolution: false,
-  audio: 'local'
+  audio: 'local',
+  viewOnly: false
 } as const;
 
-export function emptyForm(): RemoteDesktopFormFields {
+export function emptyForm(protocol: 'rdp' | 'vnc' = 'rdp'): RemoteDesktopFormFields {
   return {
     id: crypto.randomUUID(),
     name: '',
-    protocol: 'rdp',
+    protocol,
     hostname: '',
     port: '',
     username: '',
@@ -118,7 +121,8 @@ export function formFromConnection(c: RemoteDesktopConnectionDto): RemoteDesktop
     clipboard: c.clipboard ?? SETTING_DEFAULTS.clipboard,
     drives: c.drives ?? SETTING_DEFAULTS.drives,
     dynamicResolution: c.dynamicResolution ?? SETTING_DEFAULTS.dynamicResolution,
-    audio: c.audio ?? SETTING_DEFAULTS.audio
+    audio: c.audio ?? SETTING_DEFAULTS.audio,
+    viewOnly: c.viewOnly ?? SETTING_DEFAULTS.viewOnly
   };
 }
 
@@ -154,14 +158,14 @@ export function formToInput(f: RemoteDesktopFormFields): RemoteDesktopFormResult
   const domain = fieldValue(f.domain, f.domainFrom1P);
   const viaHost = f.viaHost.trim();
   if (f.usernameFrom1P && !isOnePasswordReference(username)) return { ok: false, error: referenceError('Username') };
-  if (f.domainFrom1P && !isOnePasswordReference(domain)) return { ok: false, error: referenceError('Domain') };
+  if (f.protocol === 'rdp' && f.domainFrom1P && !isOnePasswordReference(domain)) return { ok: false, error: referenceError('Domain') };
   // Switched back to typing, the password's reference is dropped.
   const passwordRef = f.passwordFrom1P ? normalizeReference(f.passwordRef) : '';
   if (f.passwordFrom1P && !isOnePasswordReference(passwordRef)) return { ok: false, error: referenceError('Password') };
 
   let width: number | undefined;
   let height: number | undefined;
-  if (f.display === 'window' && (f.width.trim() !== '' || f.height.trim() !== '')) {
+  if (f.protocol === 'rdp' && f.display === 'window' && (f.width.trim() !== '' || f.height.trim() !== '')) {
     const w = Number(f.width.trim());
     const h = Number(f.height.trim());
     const valid = (n: number): boolean => Number.isInteger(n) && n >= 200 && n <= 8192;
@@ -172,21 +176,32 @@ export function formToInput(f: RemoteDesktopFormFields): RemoteDesktopFormResult
     height = h;
   }
 
+  const common = {
+    id: f.id,
+    name,
+    protocol: f.protocol,
+    hostname,
+    port,
+    username: username || undefined,
+    password: password || undefined,
+    viaHost: viaHost || undefined,
+    passwordRef: passwordRef || undefined,
+    portRef: portRef || undefined,
+    folder: f.folder.trim() || undefined
+  };
+  // VNC has no domain and none of RDP's display & device settings.
+  if (f.protocol === 'vnc') {
+    return {
+      ok: true,
+      input: { ...common, viewOnly: f.viewOnly, clipboard: f.clipboard, dynamicResolution: f.dynamicResolution }
+    };
+  }
+
   return {
     ok: true,
     input: {
-      id: f.id,
-      name,
-      protocol: f.protocol,
-      hostname,
-      port,
-      username: username || undefined,
-      password: password || undefined,
+      ...common,
       domain: domain || undefined,
-      viaHost: viaHost || undefined,
-      passwordRef: passwordRef || undefined,
-      portRef: portRef || undefined,
-      folder: f.folder.trim() || undefined,
       display: f.display || undefined,
       width,
       height,
@@ -237,6 +252,8 @@ export function filterConnections(list: RemoteDesktopConnectionDto[], query: str
  *  words each — for the collapsed settings header and the connection tiles. Anything
  *  left to the client isn't mentioned. */
 export function describeSettings(s: {
+  protocol?: RemoteDesktopProtocolDto;
+  viewOnly?: boolean | null;
   display?: string | null;
   width?: string | number | null;
   height?: string | number | null;
@@ -247,6 +264,12 @@ export function describeSettings(s: {
   audio?: string | null;
 }): string[] {
   const out: string[] = [];
+  if (s.protocol === 'vnc') {
+    if (s.viewOnly) out.push('View only');
+    if (s.dynamicResolution) out.push('Resizes');
+    if (s.clipboard) out.push('Clipboard');
+    return out.length > 0 ? out : ['Viewer defaults'];
+  }
   if (s.display === 'fullscreen') out.push('Full screen');
   if (s.display === 'window') out.push(s.width && s.height ? `Window ${s.width}×${s.height}` : 'Window');
   if (s.display === 'fit') out.push('Fit to screen');

@@ -352,7 +352,13 @@ export interface RdpConnectProgressDto {
  *  the profile doesn't store (the username/domain it has are there to prefill). */
 export type RdpEmbeddedOpenDto =
   | ({ kind: 'ready' } & RdpEmbeddedSessionDto)
-  | { kind: 'credentials'; username?: string; domain?: string };
+  | {
+      kind: 'credentials';
+      username?: string;
+      domain?: string;
+      /** Why it asks: 1Password couldn't give the sign-in (otherwise none is saved). */
+      reason?: string;
+    };
 
 /** What the renderer's embedded RDP client needs to connect (`rdp_embedded_open`). */
 export interface RdpEmbeddedSessionDto {
@@ -370,6 +376,28 @@ export interface RdpEmbeddedSessionDto {
 /** What happened in an embedded session's handshake (`rdp_embedded_status`). */
 export interface RdpEmbeddedStatusDto {
   failure?: string;
+  notice?: string;
+}
+
+/** What the renderer's embedded VNC client (noVNC) connects with (`vnc_embedded_open`). */
+export interface VncEmbeddedSessionDto {
+  token: string;
+  /** The local gateway's WebSocket URL for this session. */
+  url: string;
+  /** Handed to noVNC so it signs in by itself; left out, it asks when the server wants them. */
+  username?: string;
+  password?: string;
+  /** 1Password couldn't give the sign-in: why, for the tab's own sign-in prompt. */
+  signInProblem?: string;
+}
+
+/** Why an embedded VNC session couldn't connect (`vnc_embedded_status`). */
+export interface VncEmbeddedStatusDto {
+  failure?: string;
+}
+
+/** What `vnc_launch` resolves with once the external viewer has been asked to open. */
+export interface VncLaunchResultDto {
   notice?: string;
 }
 

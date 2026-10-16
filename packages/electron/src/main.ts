@@ -13,6 +13,7 @@ import { registerKeySetupIpc } from './ipc/keysetup.js';
 import { cleanUpRdpOnQuit, registerRdpIpc } from './ipc/rdp.js';
 import { closeEmbeddedRdp, registerRdpEmbeddedIpc } from './ipc/rdpEmbedded.js';
 import { registerRemoteDesktopIpc } from './ipc/remoteDesktop.js';
+import { closeVnc, registerVncIpc } from './ipc/vnc.js';
 import { registerSettingsIpc } from './ipc/settings.js';
 import { registerSftpIpc } from './ipc/sftp.js';
 import { registerSystemIpc } from './ipc/system.js';
@@ -139,6 +140,7 @@ app.whenReady().then(async () => {
   registerConnectionBundlesIpc(ipcMain, state);
   registerRdpIpc(ipcMain, state);
   registerRdpEmbeddedIpc(ipcMain, state);
+  registerVncIpc(ipcMain, state);
   registerOnePasswordIpc(ipcMain);
   registerGitHubIpc(ipcMain);
   registerAiIpc(ipcMain, state);
@@ -168,4 +170,5 @@ app.on('before-quit', () => {
   closeAi();
   cleanUpRdpOnQuit();
   closeEmbeddedRdp();
+  closeVnc();
 });
