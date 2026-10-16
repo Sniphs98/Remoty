@@ -22,6 +22,7 @@
   import { sessions, type Session } from '$lib/stores/sessions';
   import { hosts } from '$lib/stores/hosts';
   import { sftp, markedEntries, formatBytes, type Pane, type PaneSide, type PendingOp } from '$lib/stores/sftp';
+  import { canCut, pasteLabel, pastePlan, type FileClip } from './sftpClipboard';
   import { opKey, readyOps } from '$lib/stores/sftpQueue';
   import { lastError } from '$lib/stores/notifications';
   import { runAutomationNow } from '$lib/stores/automations';
@@ -463,7 +464,88 @@
     return side === 'local' ? leftSlot() : { id: backendId, side: 'remote' };
   }
 
+  // Cut / copy / paste (the context menus, Ctrl+X / Ctrl+C / Ctrl+V). The clipboard is
+  // this tab's own, so a paste always lands on the host it was copied on.
+  let fileClip = $state<FileClip | null>(null);
+  /** The pane last clicked in — where the keyboard shortcuts act. */
+  let lastSide: PaneSide = 'remote';
+  const onServer = (side: PaneSide): boolean => side === 'remote' || leftHost;
+  const paneOf = (side: PaneSide) => (side === 'remote' ? view?.remote : leftPane);
+
+  /** The marked entries of `side` — or `entry`, right-clicked outside the marking. */
+  function clipEntries(side: PaneSide, entry?: FileEntryDto): FileEntryDto[] {
+    const pane = paneOf(side);
+    const marked = pane ? markedEntries(pane).filter((e) => e.name !== '..') : [];
+    if (entry && !marked.some((e) => e.path === entry.path)) return entry.name === '..' ? [] : [entry];
+    return marked;
+  }
+
+  function putOnClipboard(side: PaneSide, mode: 'copy' | 'cut', entry?: FileEntryDto): void {
+    const entries = clipEntries(side, entry);
+    if (entries.length === 0 || (mode === 'cut' && !canCut(onServer(side)))) return;
+    fileClip = { mode, onServer: onServer(side), entries: entries.map(({ path, name, isDir }) => ({ path, name, isDir })) };
+  }
+
+  /** Pastes into `side`'s folder, or into `into` (a folder right-clicked). */
+  function pasteInto(side: PaneSide, into?: FileEntryDto): void {
+    const pane = paneOf(side);
+    if (!pane || !fileClip) return;
+    const dir = into?.isDir && into.name !== '..' ? into.path : pane.path;
+    const plan = pastePlan(fileClip, onServer(side));
+    const entries = fileClip.entries as FileEntryDto[];
+    if (plan.kind === 'relocate') relocate(entries, dir, plan.mode);
+    else if (plan.kind === 'upload') enqueue(...entries.filter((e) => !e.isDir).map((e) => uploadOp(e.path, dir, e.name)));
+    else if (plan.kind === 'download') enqueue(...entries.filter((e) => !e.isDir).map((e) => downloadOp(e.path, dir, e.name)));
+    else return;
+    // A cut is used up by its paste; a copy can be pasted again.
+    if (fileClip.mode === 'cut') fileClip = null;
+  }
+
+  /** The Cut / Copy / Paste rows of a pane's menu (on `entry`, or on empty space). */
+  function clipboardItems(side: PaneSide, entry?: FileEntryDto): ContextMenuItem[] {
+    const plan = pastePlan(fileClip, onServer(side));
+    const into = entry?.isDir && entry.name !== '..' ? entry.name : undefined;
+    const paste: ContextMenuItem = {
+      label: pasteLabel(fileClip, plan, into),
+      icon: 'download',
+      onSelect: () => pasteInto(side, entry),
+      disabled: plan.kind === 'none',
+      hint: plan.kind === 'none' ? plan.reason : undefined
+    };
+    if (!entry) return [paste];
+    const count = clipEntries(side, entry).length;
+    return [
+      {
+        label: count > 1 ? `Cut ${count} items` : 'Cut',
+        icon: 'edit',
+        onSelect: () => putOnClipboard(side, 'cut', entry),
+        disabled: count === 0 || !canCut(onServer(side)),
+        hint: canCut(onServer(side)) ? undefined : 'Files on this computer can be copied to the server, not moved'
+      },
+      { label: count > 1 ? `Copy ${count} items` : 'Copy', icon: 'file', onSelect: () => putOnClipboard(side, 'copy', entry), disabled: count === 0 },
+      paste
+    ];
+  }
+
+  function onClipboardKeys(e: KeyboardEvent): void {
+    if (!active || !(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
+    const el = e.target as HTMLElement | null;
+    if (el && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName) || el.closest('.xterm'))) return;
+    if (document.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"]')) return;
+    if (window.getSelection()?.toString()) return;
+    const key = e.key.toLowerCase();
+    if (key === 'c' || key === 'x') {
+      if (clipEntries(lastSide).length === 0) return;
+      e.preventDefault();
+      putOnClipboard(lastSide, key === 'x' ? 'cut' : 'copy');
+    } else if (key === 'v' && fileClip) {
+      e.preventDefault();
+      pasteInto(lastSide);
+    }
+  }
+
   function toggleMark(side: PaneSide, path: string): void {
+    lastSide = side;
     const at = slot(side);
     if (at.id != null) sftp.toggleMark(at.id, at.side, path);
   }
@@ -814,6 +896,7 @@
     const files = remoteMarkedFiles.length;
     return [
       { label: 'Open', icon: entry.isDir ? 'folder' : 'file', onSelect: () => openEntry('remote', entry), disabled: count > 1 },
+      ...clipboardItems('remote', entry),
       ...(leftHost
         ? [
             { label: count > 1 ? `Move ${count} items to the left folder` : 'Move to the left folder', icon: 'arrow-left', onSelect: () => rightToLeft('move'), disabled: count === 0 },
@@ -846,6 +929,7 @@
   ): ContextMenuItem[] {
     const folder = currentView.remote.path;
     return [
+      ...clipboardItems('remote'),
       { label: 'Run snippet here…', icon: 'play', onSelect: () => void openSnippetPicker('folder', folder, folder) },
       { label: 'New folder', icon: 'plus', onSelect: () => openPrompt('mkdir') },
       { label: 'Refresh', icon: 'refresh', onSelect: () => refreshRemote(currentView.remote.path) }
@@ -857,6 +941,7 @@
     if (leftHost) {
       return [
         { label: 'Open', icon: entry.isDir ? 'folder' : 'file', onSelect: () => openEntry('local', entry), disabled: marked > 1 },
+        ...clipboardItems('local', entry),
         { label: marked > 1 ? `Move ${marked} items to the right folder` : 'Move to the right folder', icon: 'upload', onSelect: () => leftToRight('move'), disabled: marked === 0 },
         { label: marked > 1 ? `Copy ${marked} items to the right folder` : 'Copy to the right folder', icon: 'file', onSelect: () => leftToRight('copy'), disabled: marked === 0 },
         { label: 'Refresh', icon: 'refresh', onSelect: () => refreshLeft(leftPane.path) }
@@ -865,6 +950,7 @@
     const files = localMarkedFiles.length;
     return [
       { label: 'Open', icon: entry.isDir ? 'folder' : 'file', onSelect: () => openEntry('local', entry), disabled: marked > 1 },
+      ...clipboardItems('local', entry),
       { label: files > 1 ? `Upload ${files} files` : 'Upload', icon: 'upload', onSelect: upload, disabled: files === 0 },
       {
         label: 'Run automation with this file…',
@@ -879,11 +965,12 @@
   }
 
   function localEmptyMenuItems(): ContextMenuItem[] {
-    return [{ label: 'Refresh', icon: 'refresh', onSelect: () => refreshLeft(leftPane.path) }];
+    return [...clipboardItems('local'), { label: 'Refresh', icon: 'refresh', onSelect: () => refreshLeft(leftPane.path) }];
   }
 
   function openEntryContextMenu(side: PaneSide, entry: FileEntryDto, event: MouseEvent): void {
     if (!view) return;
+    lastSide = side;
     const items = side === 'remote' ? remoteEntryMenuItems(view, entry) : localEntryMenuItems(view, entry);
     contextMenu = { side, x: event.clientX, y: event.clientY, items };
   }
@@ -957,6 +1044,7 @@
 
   function openEmptyContextMenu(side: PaneSide, event: MouseEvent): void {
     if (!view) return;
+    lastSide = side;
     const items = side === 'remote' ? remoteEmptyMenuItems(view) : localEmptyMenuItems();
     contextMenu = { side, x: event.clientX, y: event.clientY, items };
   }
@@ -1005,6 +1093,8 @@
     'w-full rounded-lg bg-surface-inset px-3 py-2 text-sm text-fg outline-none ' +
     'focus-visible:ring-2 focus-visible:ring-focus placeholder:text-faint';
 </script>
+
+<svelte:window onkeydown={onClipboardKeys} />
 
 <!-- bg-surface fills behind the macOS traffic lights (no seam); the pt insets the
      panes below them. -->

@@ -12,6 +12,8 @@
     disabled?: boolean;
     /** Destructive actions (Delete) render in the critical-status colour. */
     danger?: boolean;
+    /** Shown on hover — why a disabled item can't be used, say. */
+    hint?: string;
   }
 
   let { x, y, items, onClose }: { x: number; y: number; items: ContextMenuItem[]; onClose: () => void } =
@@ -73,6 +75,7 @@
       type="button"
       role="menuitem"
       disabled={item.disabled}
+      title={item.hint}
       class="flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-sm transition
         disabled:cursor-not-allowed disabled:opacity-40
         {item.danger ? 'text-status-crit hover:bg-status-crit/10' : 'text-fg hover:bg-surface-inset'}"
