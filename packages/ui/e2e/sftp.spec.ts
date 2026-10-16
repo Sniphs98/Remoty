@@ -798,38 +798,48 @@ test('a second action waits until the batch before it has finished', async ({ pa
 
 type PathTestWindow = { __savedHost?: { name: string; defaultPath?: string } };
 
-test.describe('local folder shortcuts', () => {
+test.describe('favorite folders', () => {
   const localPane = (page: Page) => page.getByRole('region', { name: 'Local', exact: true });
-  const shortcuts = (page: Page) => page.getByRole('toolbar', { name: 'Local folder shortcuts' });
+  const remotePane = (page: Page) => page.getByRole('region', { name: 'web-1', exact: true });
+  const bar = (page: Page) => page.getByRole('dialog', { name: 'Go to a folder' });
 
-  test('+ adds a named shortcut, and clicking its badge opens the folder in the local pane', async ({ page }) => {
-    await boot(page);
-    await page.getByTitle('files on web-1').click();
-    await expect(localPane(page).getByText('notes.txt')).toBeVisible();
+  // Opens ~/work, stars it, and names it "Work" (right-click on it in the path bar → Edit…).
+  async function starWork(page: Page, makeDefault = false): Promise<void> {
+    await page.getByRole('region', { name: 'Local file list' }).getByRole('button', { name: 'work', exact: true }).click();
+    await expect(localPane(page).getByText('plan.md')).toBeVisible();
+    await localPane(page).getByRole('button', { name: 'Add to favorites' }).click();
+    await expect(localPane(page).getByRole('button', { name: 'Remove from favorites' })).toBeVisible();
 
-    await shortcuts(page).getByRole('button', { name: 'Add shortcut' }).click();
-    const dialog = page.getByRole('dialog');
+    await localPane(page).getByTestId('pane-path').click();
+    await bar(page).getByRole('button', { name: 'work', exact: true }).click({ button: 'right' });
+    await page.getByRole('menu').getByRole('menuitem', { name: 'Edit…' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Edit favorite' });
     await dialog.getByLabel('Name').fill('Work');
-    await dialog.getByLabel('Local folder').fill('/home/user/work');
+    if (makeDefault) await dialog.getByRole('switch', { name: 'Open SFTP tabs here' }).click();
     await dialog.getByRole('button', { name: 'Save' }).click();
     await expect(dialog).toHaveCount(0);
+  }
 
-    await shortcuts(page).getByRole('button', { name: 'Work' }).click();
-    await expect(localPane(page).getByText('plan.md')).toBeVisible();
-    await expect(localPane(page).getByTestId('pane-path')).toHaveText('/home/user/work');
-  });
-
-  test('a default shortcut is where the next SFTP tab opens its local pane', async ({ page }) => {
+  test('the star makes a folder a favorite; picking it in the path bar goes there', async ({ page }) => {
     await boot(page);
     await page.getByTitle('files on web-1').click();
     await expect(localPane(page).getByText('notes.txt')).toBeVisible();
+    await starWork(page);
 
-    await shortcuts(page).getByRole('button', { name: 'Add shortcut' }).click();
-    const dialog = page.getByRole('dialog');
-    await dialog.getByLabel('Name').fill('Work');
-    await dialog.getByLabel('Local folder').fill('/home/user/work');
-    await dialog.getByRole('switch', { name: 'Open SFTP tabs here' }).click();
-    await dialog.getByRole('button', { name: 'Save' }).click();
+    await page.getByRole('region', { name: 'Local file list' }).getByRole('button', { name: '..' }).click();
+    await expect(localPane(page).getByText('notes.txt')).toBeVisible();
+    await expect(localPane(page).getByRole('button', { name: 'Add to favorites' })).toBeVisible();
+    await localPane(page).getByTestId('pane-path').click();
+    await expect(bar(page).getByText('Favorites')).toBeVisible();
+    await bar(page).getByRole('button', { name: 'Work', exact: true }).click();
+    await expect(localPane(page).getByText('plan.md')).toBeVisible();
+  });
+
+  test('a default favorite is where the next SFTP tab opens its local pane', async ({ page }) => {
+    await boot(page);
+    await page.getByTitle('files on web-1').click();
+    await expect(localPane(page).getByText('notes.txt')).toBeVisible();
+    await starWork(page, true);
 
     await page.reload();
     await expect(page.getByText('2 hosts')).toBeVisible();
@@ -838,26 +848,96 @@ test.describe('local folder shortcuts', () => {
     await expect(localPane(page).getByText('notes.txt')).toHaveCount(0);
   });
 
-  test('the badges sit in the local pane, under its path', async ({ page }) => {
+  test('the star again, or Remove on right-click, takes a favorite away', async ({ page }) => {
+    await boot(page);
+    await page.getByTitle('files on web-1').click();
+    await starWork(page);
+
+    await localPane(page).getByTestId('pane-path').click();
+    await bar(page).getByRole('button', { name: 'Work', exact: true }).click({ button: 'right' });
+    await page.getByRole('menu').getByRole('menuitem', { name: 'Remove' }).click();
+    await expect(localPane(page).getByRole('button', { name: 'Add to favorites' })).toBeVisible();
+
+    await localPane(page).getByRole('button', { name: 'Add to favorites' }).click();
+    await localPane(page).getByRole('button', { name: 'Remove from favorites' }).click();
+    await localPane(page).getByTestId('pane-path').click();
+    await expect(bar(page).getByText('Favorites')).toHaveCount(0);
+  });
+
+  test("a server's folders are starred too, and kept apart from this computer's", async ({ page }) => {
+    await boot(page);
+    await page.getByTitle('files on web-1').click();
+    await expect(remotePane(page).getByText('config.yml')).toBeVisible();
+
+    await remotePane(page).getByTestId('pane-path').click();
+    await bar(page).getByRole('textbox', { name: 'Path to go to' }).fill('/var/www');
+    await page.keyboard.press('Enter');
+    await expect(remotePane(page).getByText('index.html')).toBeVisible();
+    await remotePane(page).getByRole('button', { name: 'Add to favorites' }).click();
+
+    await remotePane(page).getByTestId('pane-path').click();
+    await bar(page).getByRole('button', { name: '/', exact: true }).first().click();
+    await expect(remotePane(page).getByText('config.yml')).toBeVisible();
+    await remotePane(page).getByTestId('pane-path').click();
+    await page.screenshot({ path: 'test-results/path-bar-favorites.png' });
+    await bar(page).getByRole('button', { name: 'www', exact: true }).click();
+    await expect(remotePane(page).getByText('index.html')).toBeVisible();
+
+    await localPane(page).getByTestId('pane-path').click();
+    await expect(bar(page).getByText('Favorites')).toHaveCount(0);
+  });
+});
+
+test.describe('the path bar', () => {
+  const localPane = (page: Page) => page.getByRole('region', { name: 'Local', exact: true });
+  const remotePane = (page: Page) => page.getByRole('region', { name: 'web-1', exact: true });
+
+  test('both panes have headers of the same height', async ({ page }) => {
+    await boot(page);
+    await page.getByTitle('files on web-1').click();
+    await expect(remotePane(page).getByText('config.yml')).toBeVisible();
+    const left = (await localPane(page).locator('header').boundingBox())!;
+    const right = (await remotePane(page).locator('header').boundingBox())!;
+    expect(Math.abs(left.height - right.height)).toBeLessThan(1);
+  });
+
+  test('a typed path is gone to on Enter; a folder in this one is suggested and picked', async ({ page }) => {
+    await boot(page);
+    await page.getByTitle('files on web-1').click();
+    await expect(remotePane(page).getByText('config.yml')).toBeVisible();
+
+    await remotePane(page).getByTestId('pane-path').click();
+    const bar = page.getByRole('dialog', { name: 'Go to a folder' });
+    await bar.getByRole('textbox', { name: 'Path to go to' }).fill('/var/www');
+    await page.keyboard.press('Enter');
+    await expect(remotePane(page).getByText('index.html')).toBeVisible();
+
+    // Back up: the folders above are offered, and the folder just left is among the recent ones.
+    await remotePane(page).getByTestId('pane-path').click();
+    await expect(bar.getByText('Up')).toBeVisible();
+    await bar.getByRole('button', { name: '/', exact: true }).first().click();
+    await expect(remotePane(page).getByText('config.yml')).toBeVisible();
+
+    await remotePane(page).getByTestId('pane-path').click();
+    await bar.getByRole('textbox', { name: 'Path to go to' }).fill('va');
+    await expect(bar.getByRole('button', { name: 'var', exact: true })).toBeVisible();
+    await page.screenshot({ path: 'test-results/path-bar.png' });
+    await bar.getByRole('button', { name: 'var', exact: true }).click();
+    await expect(remotePane(page).getByTestId('pane-path')).toContainText('/var');
+  });
+
+  test('the left pane shows this computer or the server, picked in its path bar', async ({ page }) => {
     await boot(page);
     await page.getByTitle('files on web-1').click();
     await expect(localPane(page).getByText('notes.txt')).toBeVisible();
-    const section = page.getByRole('region', { name: 'Local', exact: true }).locator('xpath=..');
-    await expect(section.getByRole('toolbar', { name: 'Local folder shortcuts' })).toBeVisible();
-  });
 
-  test('right-click on a badge removes it', async ({ page }) => {
-    await boot(page);
-    await page.getByTitle('files on web-1').click();
-    await shortcuts(page).getByRole('button', { name: 'Add shortcut' }).click();
-    const dialog = page.getByRole('dialog');
-    await dialog.getByLabel('Name').fill('Work');
-    await dialog.getByLabel('Local folder').fill('/home/user/work');
-    await dialog.getByRole('button', { name: 'Save' }).click();
+    await localPane(page).getByTestId('pane-path').click();
+    await page.getByRole('dialog', { name: 'Go to a folder' }).getByRole('button', { name: 'web-1' }).click();
+    await expect(page.getByRole('region', { name: 'web-1 · 2 file list' }).getByText('config.yml')).toBeVisible();
 
-    await shortcuts(page).getByRole('button', { name: 'Work' }).click({ button: 'right' });
-    await page.getByRole('menu').getByRole('menuitem', { name: 'Remove' }).click();
-    await expect(shortcuts(page).getByRole('button', { name: 'Work' })).toHaveCount(0);
+    await page.getByRole('region', { name: 'web-1 · 2', exact: true }).getByTestId('pane-path').click();
+    await page.getByRole('dialog', { name: 'Go to a folder' }).getByRole('button', { name: 'This computer' }).click();
+    await expect(page.getByRole('region', { name: 'Local file list' }).getByText('notes.txt')).toBeVisible();
   });
 });
 
@@ -869,15 +949,16 @@ test.describe('two folders on one host', () => {
     await boot(page);
     await page.getByTitle('files on web-1').click();
     await expect(right(page).getByText('config.yml')).toBeVisible();
-    await page.getByRole('button', { name: 'Browse web-1 here' }).click();
+    await page.getByRole('region', { name: 'Local', exact: true }).getByTestId('pane-path').click();
+    await page.getByRole('dialog', { name: 'Go to a folder' }).getByRole('button', { name: 'web-1' }).click();
     // It starts where the right pane is.
     await expect(left(page).getByText('config.yml')).toBeVisible();
-    await expect(page.getByRole('toolbar', { name: 'Local folder shortcuts' })).toHaveCount(0);
   }
 
   test('the left pane can show the host, and switch back to local files', async ({ page }) => {
     await showSecondFolder(page);
-    await page.getByRole('button', { name: 'Browse local files here' }).click();
+    await page.getByRole('region', { name: 'web-1 · 2', exact: true }).getByTestId('pane-path').click();
+    await page.getByRole('dialog', { name: 'Go to a folder' }).getByRole('button', { name: 'This computer' }).click();
     await expect(page.getByRole('region', { name: 'Local file list' }).getByText('notes.txt')).toBeVisible();
   });
 

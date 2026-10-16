@@ -36,4 +36,5 @@ export type IconName =
   | 'sparkle'
   | 'list'
   | 'send'
-  | 'stop';
+  | 'stop'
+  | 'star';
