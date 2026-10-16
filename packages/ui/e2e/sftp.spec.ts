@@ -1000,3 +1000,45 @@ test.describe('the path line', () => {
   });
 });
 
+
+test('cut, copy and paste from the right-click menu — on the server, and from it to this computer', async ({ page }) => {
+  await boot(page);
+  await page.getByTitle('files on web-1').click();
+  const remotePane = page.getByRole('region', { name: 'web-1', exact: true });
+  const localPane = page.getByRole('region', { name: 'Local' });
+  const menu = page.getByRole('menu');
+  const calls = () => page.evaluate(() => [...(window as unknown as { __sftpCalls: string[] }).__sftpCalls]);
+
+  // Paste is there from the start, but greyed out until something is cut or copied.
+  await remotePane.getByTitle('app.log').click({ button: 'right' });
+  await expect(menu.getByRole('menuitem', { name: 'Paste' })).toBeDisabled();
+
+  // Copy app.log, paste it into the folder "var" (right-clicked): a copy on the server.
+  await menu.getByRole('menuitem', { name: 'Copy', exact: true }).click();
+  await remotePane.getByTitle('var', { exact: true }).click({ button: 'right' });
+  await menu.getByRole('menuitem', { name: 'Paste into var' }).click();
+  await expect.poll(calls).toContain('copy /app.log /var/app.log');
+  await page.screenshot({ path: 'test-results/sftp-paste.png' });
+
+  // Cut config.yml with the keyboard, paste into var: a move (rename) — and the cut is used up.
+  await remotePane.getByTitle('config.yml').click();
+  await page.keyboard.press('ControlOrMeta+X');
+  await remotePane.getByTitle('var', { exact: true }).click({ button: 'right' });
+  await menu.getByRole('menuitem', { name: 'Paste into var' }).click();
+  await expect.poll(calls).toContain('rename /config.yml');
+  await expect(remotePane.getByText('config.yml')).toHaveCount(0);
+  await remotePane.getByTitle('photo.png').click({ button: 'right' });
+  await expect(menu.getByRole('menuitem', { name: 'Paste' })).toBeDisabled();
+  await page.keyboard.press('Escape');
+
+  // From the server to this computer: a copy downloads; a cut can't go there.
+  await remotePane.getByTitle('photo.png').click({ button: 'right' });
+  await menu.getByRole('menuitem', { name: 'Copy', exact: true }).click();
+  await localPane.getByTitle('notes.txt').click({ button: 'right' });
+  await menu.getByRole('menuitem', { name: 'Paste' }).click();
+  await expect.poll(calls).toContain('download /photo.png');
+
+  // On this computer there's no Cut (it would have to delete here after an upload).
+  await localPane.getByTitle('notes.txt').click({ button: 'right' });
+  await expect(menu.getByRole('menuitem', { name: 'Cut' })).toBeDisabled();
+});
