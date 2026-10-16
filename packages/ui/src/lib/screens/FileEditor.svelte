@@ -12,6 +12,7 @@
   import Modal from '$lib/components/Modal.svelte';
   import Select from '$lib/components/Select.svelte';
   import { theme } from '$lib/stores/theme';
+  import { monacoTheme } from '$lib/theme/monacoTheme';
 
   let {
     path,
@@ -62,7 +63,7 @@
       const editor = monaco.editor.create(container, {
         value: initialContent,
         language,
-        theme: $theme === 'dark' ? 'vs-dark' : 'vs',
+        theme: monacoTheme(monaco, $theme),
         automaticLayout: true,
         minimap: { enabled: false },
         fontSize: 13,
@@ -84,7 +85,7 @@
 
       // The #1 theme-regression guard (§5.1), same as the terminal: re-theme a live
       // editor rather than only setting it once at creation.
-      themeUnsub = theme.subscribe((t) => monaco.editor.setTheme(t === 'dark' ? 'vs-dark' : 'vs'));
+      themeUnsub = theme.subscribe((t) => monaco.editor.setTheme(monacoTheme(monaco, t)));
     })();
     return () => {
       disposed = true;
