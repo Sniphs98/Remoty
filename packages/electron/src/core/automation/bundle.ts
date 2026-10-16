@@ -137,13 +137,17 @@ function parseAutomationEdge(raw: unknown, ctx: string): AutomationEdge {
 function parseAutomationParam(raw: unknown, ctx: string): AutomationParam {
   const o = obj(raw, ctx);
   const kind: AutomationParamKind | undefined = paramKind(o.kind);
-  if (kind === undefined) throw new Error(`${ctx}.kind: must be "text", "host" or "fixed"`);
-  return {
+  if (kind === undefined) throw new Error(`${ctx}.kind: must be "text", "host", "fixed" or "choice"`);
+  const param: AutomationParam = {
     name: str(o.name, `${ctx}.name`),
     kind,
     label: optionalStr(o.label, `${ctx}.label`),
     default: optionalStr(o.default, `${ctx}.default`)
   };
+  if (kind === 'choice') {
+    param.options = arr(o.options ?? [], `${ctx}.options`).map((v, i) => str(v, `${ctx}.options[${i}]`));
+  }
+  return param;
 }
 
 function parseAutomation(raw: unknown, ctx: string): Automation {

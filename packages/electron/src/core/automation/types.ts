@@ -23,9 +23,10 @@ export interface Snippet {
   submenu?: string;
 }
 
-/** `'text'`/`'host'` are asked for when the automation runs; `'fixed'` is a variable set
- *  in the automation itself (its `default` is its value) and never asked for. */
-export type AutomationParamKind = 'text' | 'host' | 'fixed';
+/** `'text'`/`'host'`/`'choice'` are asked for when the automation runs — a `'choice'` one
+ *  as a pick from its own `options`; `'fixed'` is a variable set in the automation itself
+ *  (its `default` is its value) and never asked for. */
+export type AutomationParamKind = 'text' | 'host' | 'fixed' | 'choice';
 
 /** A value the automation asks for right before it runs, rather than baking it into any
  *  node. An automation may declare at most one `kind: 'host'` param — its value is the host
@@ -42,6 +43,8 @@ export interface AutomationParam {
   /** Prefills the "run this automation" prompt for a `'text'` param; unused for `'host'`.
    *  For a `'fixed'` one, its value — used as is on every run. */
   default?: string;
+  /** For a `'choice'` param: the values offered in the run prompt's drop-down. */
+  options?: string[];
 }
 
 /** Where a node's snippet runs: on this machine, in a WSL distribution on it (Windows),

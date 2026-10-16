@@ -122,7 +122,11 @@
         value={call.params[p.name] ?? ''}
         oninput={(e) => setValue(p.name, e.currentTarget.value)}
         class={input}
-        placeholder={p.kind === 'host' ? 'host name or {{params.…}}' : (p.default ?? '')}
+        placeholder={p.kind === 'host'
+          ? 'host name or {{params.…}}'
+          : p.kind === 'choice'
+            ? (p.options ?? []).join(' | ')
+            : (p.default ?? '')}
         spellcheck="false"
         aria-label="Value for {p.label || p.name}"
       />
