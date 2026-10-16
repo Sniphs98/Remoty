@@ -13,6 +13,11 @@ interface SnippetsFile {
   snippets: Snippet[];
 }
 
+/** An optional text field, kept only when it says something. */
+function optionalLabel(v: unknown, key: 'category' | 'submenu'): Partial<Snippet> {
+  return typeof v === 'string' && v.trim() ? { [key]: v.trim() } : {};
+}
+
 function snippetFromToml(raw: Record<string, unknown>): Snippet {
   if (typeof raw.id !== 'string') throw new Error('snippet is missing "id"');
   if (typeof raw.name !== 'string') throw new Error(`snippet "${raw.id}" is missing "name"`);
@@ -22,7 +27,9 @@ function snippetFromToml(raw: Record<string, unknown>): Snippet {
     id: raw.id,
     name: raw.name,
     command: raw.command,
-    timeoutSecs: raw.timeoutSecs
+    timeoutSecs: raw.timeoutSecs,
+    ...optionalLabel(raw.category, 'category'),
+    ...optionalLabel(raw.submenu, 'submenu')
   };
 }
 
@@ -31,7 +38,9 @@ function snippetToToml(snippet: Snippet): Record<string, unknown> {
     id: snippet.id,
     name: snippet.name,
     command: snippet.command,
-    timeoutSecs: snippet.timeoutSecs
+    timeoutSecs: snippet.timeoutSecs,
+    ...(snippet.category ? { category: snippet.category } : {}),
+    ...(snippet.submenu ? { submenu: snippet.submenu } : {})
   };
 }
 

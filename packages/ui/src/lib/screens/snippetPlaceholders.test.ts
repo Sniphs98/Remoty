@@ -3,6 +3,10 @@ import {
   commandInFolder,
   fillFilePlaceholder,
   snippetSections,
+  snippetCategories,
+  sftpMenuGroups,
+  sftpMenuProblem,
+  SFTP_MENU_CATEGORY,
   snippetsForTarget,
   usesFilePlaceholder,
   FILE_PLACEHOLDER
@@ -75,18 +79,43 @@ describe('snippetsForTarget', () => {
 });
 
 describe('snippetSections', () => {
-  it('sorts the library into file, general and automation-only sections, leaving empty ones out', () => {
+  it('one section per category: the SFTP menu first, the others by name, uncategorized last', () => {
     const snippets = [
-      { name: 'unzip', command: 'unzip {{file}}' },
-      { name: 'deploy', command: 'deploy {{params.env}}' },
       { name: 'df', command: 'df -h' },
-      { name: 'copy', command: 'scp {{file}} {{params.target}}' }
+      { name: 'deploy', command: 'deploy {{params.env}}', category: 'Deploy' },
+      { name: 'unzip', command: 'unzip {{file}}', category: SFTP_MENU_CATEGORY },
+      { name: 'logs', command: 'docker logs app', category: 'Docker' }
     ];
-    expect(snippetSections(snippets).map((s) => [s.key, s.snippets.map((x) => x.name)])).toEqual([
-      ['file', ['unzip']],
-      ['general', ['df']],
-      ['automation', ['deploy', 'copy']]
+    expect(snippetSections(snippets).map((s) => [s.title, s.snippets.map((x) => x.name)])).toEqual([
+      ['SFTP menu', ['unzip']],
+      ['Deploy', ['deploy']],
+      ['Docker', ['logs']],
+      ['Uncategorized', ['df']]
     ]);
-    expect(snippetSections([{ name: 'df', command: 'df -h' }]).map((s) => s.key)).toEqual(['general']);
+    expect(snippetCategories([{ category: 'Docker' }, {}])).toEqual(['SFTP menu', 'Docker']);
+  });
+});
+
+describe('sftpMenuGroups', () => {
+  const snippets = [
+    { name: 'tail', command: 'tail -n 100 {{file}}', category: SFTP_MENU_CATEGORY, submenu: 'Logs' },
+    { name: 'unzip', command: 'unzip {{file}}', category: SFTP_MENU_CATEGORY },
+    { name: 'cat', command: 'cat {{file}}', category: SFTP_MENU_CATEGORY, submenu: 'Logs' },
+    { name: 'prune', command: 'docker system prune -f', category: SFTP_MENU_CATEGORY, submenu: 'Docker' },
+    { name: 'deploy', command: 'deploy {{file}} {{params.env}}', category: SFTP_MENU_CATEGORY },
+    { name: 'less', command: 'less {{file}}', category: 'Tools' }
+  ];
+
+  it('only the SFTP menu category, fitting what was clicked, grouped by submenu and sorted', () => {
+    expect(sftpMenuGroups(snippets, 'entry').map((g) => [g.title, g.snippets.map((s) => s.name)])).toEqual([
+      ['Logs', ['cat', 'tail']],
+      ['Snippets', ['unzip']]
+    ]);
+    expect(sftpMenuGroups(snippets, 'folder').map((g) => [g.title, g.snippets.map((s) => s.name)])).toEqual([['Docker', ['prune']]]);
+  });
+
+  it('says why a snippet in the SFTP menu would not show there', () => {
+    expect(sftpMenuProblem('deploy {{file}} {{params.env}}')).toContain('{{params.env}}');
+    expect(sftpMenuProblem('unzip {{file}}')).toBeUndefined();
   });
 });

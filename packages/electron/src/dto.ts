@@ -137,6 +137,11 @@ export interface SnippetDto {
   name: string;
   command: string;
   timeoutSecs: number;
+  /** Where the Snippets screen lists it; `'SFTP menu'` also puts it in
+   *  the SFTP browser's right-click menu. Absent: uncategorized. */
+  category?: string;
+  /** In the SFTP menu category: the submenu it's under there (`Docker ▸`). */
+  submenu?: string;
 }
 
 export function snippetToDto(snippet: Snippet): SnippetDto {
