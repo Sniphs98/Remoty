@@ -80,7 +80,9 @@ function parseSnippet(raw: unknown, ctx: string): Snippet {
     id: str(o.id, `${ctx}.id`),
     name: str(o.name, `${ctx}.name`),
     command: str(o.command, `${ctx}.command`),
-    timeoutSecs: num(o.timeoutSecs, `${ctx}.timeoutSecs`)
+    timeoutSecs: num(o.timeoutSecs, `${ctx}.timeoutSecs`),
+    ...(optionalStr(o.category, `${ctx}.category`)?.trim() ? { category: (o.category as string).trim() } : {}),
+    ...(optionalStr(o.submenu, `${ctx}.submenu`)?.trim() ? { submenu: (o.submenu as string).trim() } : {})
   };
 }
 

@@ -16,6 +16,11 @@ export interface Snippet {
    *  one automation and against a host in another without being duplicated. */
   command: string;
   timeoutSecs: number;
+  /** Where the Snippets screen lists it; `'SFTP menu'` also puts it in
+   *  the SFTP browser's right-click menu. Absent: uncategorized. */
+  category?: string;
+  /** In the SFTP menu category: the submenu it's under there (`Docker ▸`). */
+  submenu?: string;
 }
 
 /** `'text'`/`'host'`/`'choice'` are asked for when the automation runs — a `'choice'` one

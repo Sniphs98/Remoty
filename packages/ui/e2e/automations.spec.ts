@@ -261,33 +261,54 @@ test('the sidebar has separate Automations and Snippets entries into the same sc
   await expect(page.getByRole('button', { name: 'Snippets', exact: true })).toHaveAttribute('aria-current', 'page');
 });
 
-test('the snippet library is sorted into sections by placeholder, each collapsible', async ({ page }) => {
+test('the snippet library is sorted into sections by category, each collapsible', async ({ page }) => {
   await boot(page);
   await page.getByRole('button', { name: 'Automations', exact: true }).click();
   await page.getByRole('button', { name: 'Manage snippets' }).click();
 
-  async function addSnippet(name: string, command: string): Promise<void> {
+  async function addSnippet(name: string, command: string, category?: string, submenu?: string): Promise<void> {
     await page.getByRole('button', { name: 'New snippet' }).first().click();
     const editor = page.getByRole('dialog', { name: 'New snippet' });
     await editor.getByLabel('Name').fill(name);
     await fillCommand(editor, command);
+    if (category === 'SFTP menu') {
+      // The shortcut under the field puts it in the SFTP menu; then a submenu can be named.
+      await editor.getByRole('button', { name: 'Put it in the SFTP right-click menu' }).click();
+      await expect(editor.getByLabel('Category')).toHaveValue('SFTP menu');
+      if (submenu) await editor.getByLabel('Submenu in the SFTP menu').fill(submenu);
+      await expect(editor.getByText('Shown when you right-click')).toBeVisible();
+    } else if (category) {
+      await editor.getByLabel('Category').fill(category);
+    }
     await editor.getByRole('button', { name: 'Add snippet' }).click();
     await expect(page.getByRole('dialog')).toHaveCount(0);
   }
-  await addSnippet('Show file', 'cat {{file}}');
+  await addSnippet('Show file', 'cat {{file}}', 'SFTP menu', 'Logs');
   await addSnippet('Disk', 'df -h');
-  await addSnippet('Deploy', 'deploy {{params.env}}');
+  await addSnippet('Deploy', 'deploy {{params.env}}', 'Deploy');
 
-  const files = page.getByRole('button', { name: /^Files & folders/ });
-  await expect(files).toBeVisible();
-  await expect(page.getByRole('button', { name: /^General/ })).toBeVisible();
-  await expect(page.getByRole('button', { name: /^Automations only/ })).toBeVisible();
+  const sftp = page.getByRole('button', { name: /^SFTP menu/ });
+  await expect(sftp).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Deploy/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Uncategorized/ })).toBeVisible();
 
   await expect(page.getByText('Show file', { exact: true })).toBeVisible();
-  await files.click();
-  await expect(files).toHaveAttribute('aria-expanded', 'false');
+  await sftp.click();
+  await expect(sftp).toHaveAttribute('aria-expanded', 'false');
   await expect(page.getByText('Show file', { exact: true })).toHaveCount(0);
   await expect(page.getByText('Disk', { exact: true })).toBeVisible();
+});
+
+test('a snippet in the SFTP menu that needs more than {{file}} says it won\'t show there', async ({ page }) => {
+  await boot(page);
+  await page.getByRole('button', { name: 'Automations', exact: true }).click();
+  await page.getByRole('button', { name: 'Manage snippets' }).click();
+  await page.getByRole('button', { name: 'New snippet' }).first().click();
+  const editor = page.getByRole('dialog', { name: 'New snippet' });
+  await fillCommand(editor, 'scp {{file}} {{params.target}}');
+  await editor.getByLabel('Category').fill('SFTP menu');
+  await expect(editor.getByText("Uses {{params.target}}, which a right-click can't fill in")).toBeVisible();
+  await page.screenshot({ path: 'test-results/snippet-category.png' });
 });
 
 test('build snippets, wire an automation, run it, and see success/failed/skipped per node', async ({ page }) => {

@@ -27,7 +27,7 @@
   import { baseName, rememberPath } from './pathSuggestions';
   import { opKey, readyOps } from '$lib/stores/sftpQueue';
   import { lastError } from '$lib/stores/notifications';
-  import { runAutomationNow } from '$lib/stores/automations';
+  import { runAutomationNow, snippets } from '$lib/stores/automations';
   import { palette } from '$lib/stores/palette';
   import { sftpBookmarks, defaultBookmarkPath, newBookmarkId, type SftpBookmark } from '$lib/stores/sftpBookmarks';
   import {
@@ -54,7 +54,7 @@
     sftpDefaultPath
   } from '$lib/ipc/commands';
   import { isOnePasswordReference } from './onePasswordRef';
-  import { commandInFolder, fillFilePlaceholder, snippetsForTarget, type SnippetTarget } from './snippetPlaceholders';
+  import { commandInFolder, fillFilePlaceholder, sftpMenuGroups, type SnippetTarget } from './snippetPlaceholders';
 
   let { session, active }: { session: Session; active: boolean } = $props();
 
@@ -393,6 +393,7 @@
   }
 
   onMount(() => {
+    void refreshSnippets();
     void (async () => {
       let home = '/';
       try {
@@ -912,34 +913,36 @@
     fileAutomationRun = { automation, initialValues };
   }
 
-  // "Run snippet…" in the remote right-click menu opens the searchable picker (the ⌘K
-  // window) with the snippets that fit what was clicked: an entry (file or folder) gets
-  // the ones whose only placeholder is `{{file}}`, filled with its path; empty space gets
-  // the ones with no placeholder at all, run in the folder being browsed (`docker system
-  // prune`, `git pull`). Either way the command is typed into the drawer terminal on this
-  // host — opening it first if it's closed, so one pick both reveals the shell and runs
-  // the thing. Remote pane only: the drawer is a shell *on the host*, so a local path
-  // would mean nothing in it.
-  async function openSnippetPicker(target: SnippetTarget, path: string, name: string): Promise<void> {
-    let snippets: SnippetDto[];
+  // The remote right-click menu's snippets: those in the "SFTP menu" category that fit
+  // what was clicked, one submenu each (snippetPlaceholders.ts's `sftpMenuGroups`). An
+  // entry (file or folder) gets the ones whose only placeholder is `{{file}}`, filled with
+  // its path; empty space gets the ones with no placeholder, run in the folder being
+  // browsed. Either way the command is typed into the drawer terminal on this host —
+  // opening it first if it's closed. Remote pane only: the drawer is a shell *on the
+  // host*, so a local path would mean nothing in it.
+  async function refreshSnippets(): Promise<void> {
     try {
-      // Fresh each time: the Snippets screen may have changed the library since.
-      snippets = snippetsForTarget(await listSnippets(), target);
-    } catch (err) {
-      lastError.set(errMsg(err));
-      return;
+      // Fresh: the Snippets screen may have changed the library since.
+      snippets.set(await listSnippets());
+    } catch {
+      // Keep what's there; the menu just shows the last known snippets.
     }
-    const id = await palette.pickOption({
-      options: snippets.map((snippet) => ({ id: snippet.id, label: snippet.name, detail: snippet.command.split(/\r?\n/)[0] })),
-      placeholder: target === 'entry' ? `Run a snippet on ${name}…` : 'Run a snippet in this folder…',
-      empty:
-        target === 'entry'
-          ? 'No snippet uses {{file}} as its only placeholder yet.'
-          : 'No snippet without placeholders yet.'
-    });
-    const snippet = snippets.find((s) => s.id === id);
-    if (!snippet) return;
-    runSnippetInDrawer(target === 'entry' ? fillFilePlaceholder(snippet.command, path) : commandInFolder(snippet.command, path));
+  }
+
+  function snippetMenuItems(target: SnippetTarget, path: string, disabled = false): ContextMenuItem[] {
+    return sftpMenuGroups($snippets, target).map((group, i) => ({
+      label: group.title,
+      icon: 'snippets',
+      separatorBefore: i === 0,
+      disabled,
+      hint: disabled ? 'A snippet runs on one entry at a time' : undefined,
+      children: group.snippets.map((snippet) => ({
+        label: snippet.name,
+        hint: snippet.command.split(/\r?\n/)[0],
+        onSelect: () =>
+          runSnippetInDrawer(target === 'entry' ? fillFilePlaceholder(snippet.command, path) : commandInFolder(snippet.command, path))
+      }))
+    }));
   }
 
   function runSnippetInDrawer(command: string): void {
@@ -975,14 +978,9 @@
       },
       { label: 'New folder', icon: 'plus', onSelect: () => openPrompt('mkdir') },
       { label: 'Refresh', icon: 'refresh', onSelect: () => refreshRemote(currentView.remote.path) },
-      {
-        label: 'Run snippet…',
-        icon: 'play',
-        onSelect: () => void openSnippetPicker('entry', entry.path, entry.name),
-        // A snippet takes one path, so a batch right-click doesn't offer it rather than
-        // quietly running against just the entry under the cursor.
-        disabled: count > 1
-      }
+      // A snippet takes one path, so a batch right-click doesn't offer them rather than
+      // quietly running against just the entry under the cursor.
+      ...snippetMenuItems('entry', entry.path, count > 1)
     ];
   }
 
@@ -992,9 +990,9 @@
     const folder = currentView.remote.path;
     return [
       ...clipboardItems('remote'),
-      { label: 'Run snippet here…', icon: 'play', onSelect: () => void openSnippetPicker('folder', folder, folder) },
       { label: 'New folder', icon: 'plus', onSelect: () => openPrompt('mkdir') },
-      { label: 'Refresh', icon: 'refresh', onSelect: () => refreshRemote(currentView.remote.path) }
+      { label: 'Refresh', icon: 'refresh', onSelect: () => refreshRemote(currentView.remote.path) },
+      ...snippetMenuItems('folder', folder)
     ];
   }
 

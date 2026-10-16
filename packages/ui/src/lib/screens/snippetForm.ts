@@ -6,15 +6,20 @@
 // and a remote node's host comes from the automation's host parameter at run time.
 
 import type { SnippetDto } from '$lib/bindings';
+import { SFTP_MENU_CATEGORY } from './snippetPlaceholders';
 
 export interface SnippetFormFields {
   name: string;
   command: string;
   timeoutSecs: string;
+  /** Free text; `SFTP_MENU_CATEGORY` puts it in the SFTP right-click menu. */
+  category: string;
+  /** Only used in the SFTP menu category. */
+  submenu: string;
 }
 
 export function emptyForm(): SnippetFormFields {
-  return { name: '', command: '', timeoutSecs: '300' };
+  return { name: '', command: '', timeoutSecs: '300', category: '', submenu: '' };
 }
 
 /** Seed the edit form from an `SnippetDto`. */
@@ -22,7 +27,9 @@ export function formFromSnippet(a: SnippetDto): SnippetFormFields {
   return {
     name: a.name,
     command: a.command,
-    timeoutSecs: String(a.timeoutSecs)
+    timeoutSecs: String(a.timeoutSecs),
+    category: a.category ?? '',
+    submenu: a.submenu ?? ''
   };
 }
 
@@ -38,6 +45,9 @@ export function formToSnippet(f: SnippetFormFields, id: string): SnippetFormResu
   const command = f.command.trim();
   if (!command) return { ok: false, error: 'Command cannot be empty' };
 
+  const category = f.category.trim();
+  const submenu = f.submenu.trim();
+
   const timeoutRaw = f.timeoutSecs.trim();
   let timeoutSecs = 300;
   if (timeoutRaw !== '') {
@@ -49,6 +59,13 @@ export function formToSnippet(f: SnippetFormFields, id: string): SnippetFormResu
 
   return {
     ok: true,
-    snippet: { id, name, command, timeoutSecs }
+    snippet: {
+      id,
+      name,
+      command,
+      timeoutSecs,
+      ...(category ? { category } : {}),
+      ...(category === SFTP_MENU_CATEGORY && submenu ? { submenu } : {})
+    }
   };
 }

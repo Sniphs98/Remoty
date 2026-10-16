@@ -15,6 +15,8 @@
   import { formToSnippet, type SnippetFormFields } from './snippetForm';
   import { PLACEHOLDERS, plainInsert } from './snippetCompletions';
   import { addPlaceholderSupport } from './placeholderEditor';
+  import { snippets } from '$lib/stores/automations';
+  import { SFTP_MENU_CATEGORY, sftpMenuProblem, snippetCategories, DEFAULT_SUBMENU } from './snippetPlaceholders';
 
   let {
     mode,
@@ -63,6 +65,14 @@
       saving = false;
     }
   }
+
+  // Suggestions for the category and submenu fields: what the library already uses.
+  const categories = $derived(snippetCategories($snippets));
+  const submenus = $derived([
+    ...new Set($snippets.filter((s) => s.category === SFTP_MENU_CATEGORY && s.submenu).map((s) => s.submenu as string))
+  ].sort((a, b) => a.localeCompare(b)));
+  const inSftpMenu = $derived(fields.category.trim() === SFTP_MENU_CATEGORY);
+  const menuProblem = $derived(inSftpMenu ? sftpMenuProblem(fields.command) : undefined);
 
   let codeEditor: Monaco.editor.IStandaloneCodeEditor | undefined;
 
@@ -146,6 +156,36 @@
               <span>Timeout (seconds)</span>
               <input bind:value={fields.timeoutSecs} inputmode="numeric" class={field} placeholder="300" />
             </label>
+            <label class={label}>
+              <span>Category</span>
+              <input bind:value={fields.category} list="snippet-categories" class={field} placeholder="Uncategorized" />
+              <datalist id="snippet-categories">
+                {#each categories as c (c)}<option value={c}></option>{/each}
+              </datalist>
+            </label>
+            {#if !inSftpMenu}
+              <button
+                type="button"
+                class="text-left text-[11px] text-faint underline-offset-2 hover:text-fg hover:underline"
+                onclick={() => (fields.category = SFTP_MENU_CATEGORY)}
+              >
+                Put it in the SFTP right-click menu
+              </button>
+            {:else}
+              <label class={label}>
+                <span>Submenu in the SFTP menu</span>
+                <input bind:value={fields.submenu} list="snippet-submenus" class={field} placeholder={DEFAULT_SUBMENU} />
+                <datalist id="snippet-submenus">
+                  {#each submenus as m (m)}<option value={m}></option>{/each}
+                </datalist>
+              </label>
+              <p class="text-[11px] {menuProblem ? 'text-status-warn' : 'text-faint'}">
+                {menuProblem ??
+                  (fields.command.includes('{{file}}')
+                    ? 'Shown when you right-click a file or folder; {{file}} becomes its path.'
+                    : 'Shown when you right-click empty space; it runs in that folder.')}
+              </p>
+            {/if}
           </div>
         </section>
 
@@ -172,9 +212,8 @@
             {/each}
           </ul>
           <p class="border-t border-default px-4 py-3 text-[11px] text-faint">
-            Where it runs (this machine, WSL or a host) is set per node in the automation. In the SFTP browser, a
-            snippet whose only placeholder is {'{{file}}'} is offered on a right-clicked file or folder, and one with no
-            placeholder on empty space, run in that folder.
+            Where it runs (this machine, WSL or a host) is set per node in the automation. Snippets in the
+            “{SFTP_MENU_CATEGORY}” category are offered in the SFTP browser's right-click menu.
           </p>
         </section>
       </div>

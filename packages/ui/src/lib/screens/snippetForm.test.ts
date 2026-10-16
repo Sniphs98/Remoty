@@ -7,6 +7,13 @@ function fields(partial: Partial<SnippetFormFields>): SnippetFormFields {
 }
 
 describe('formToSnippet', () => {
+  it('keeps a category, and a submenu only in the SFTP menu category', () => {
+    const sftp = formToSnippet(fields({ name: 'Tail', command: 'tail {{file}}', category: ' SFTP menu ', submenu: ' Logs ' }), 'id1');
+    expect(sftp.ok && sftp.snippet).toMatchObject({ category: 'SFTP menu', submenu: 'Logs' });
+    const other = formToSnippet(fields({ name: 'Tail', command: 'tail x', category: 'Docker', submenu: 'Logs' }), 'id1');
+    expect(other.ok && other.snippet).toEqual({ id: 'id1', name: 'Tail', command: 'tail x', timeoutSecs: 300, category: 'Docker' });
+  });
+
   it('rejects an empty name', () => {
     expect(formToSnippet(fields({ name: '  ', command: 'echo hi' }), 'id1')).toEqual({
       ok: false,
