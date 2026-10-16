@@ -93,9 +93,10 @@ export async function terminalOpen(
   cols: number,
   rows: number,
   onOutput: Channel<TerminalBytes>,
-  progressKey?: string
+  progressKey?: string,
+  oneTimePassword?: string
 ): Promise<number> {
-  const res = await commands.terminalOpen(hostName, cols, rows, onOutput, progressKey);
+  const res = await commands.terminalOpen(hostName, cols, rows, onOutput, progressKey, oneTimePassword);
   if (res.status === 'error') throw new Error(res.error.message);
   return res.data;
 }

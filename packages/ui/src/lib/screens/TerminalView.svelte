@@ -70,6 +70,16 @@
     spawnSession('terminal', session.hostName);
   }
 
+  // Sign-in failed and 1Password couldn't give the password: type one, for this tab only.
+  const askPassword = $derived(connectPhase === 'failed' && /authentication failed/i.test(connectError) && /1Password/.test(connectError));
+  let oncePassword = $state('');
+  function signInOnce(e: SubmitEvent): void {
+    e.preventDefault();
+    if (!oncePassword) return;
+    closeSession(session.id);
+    spawnSession('terminal', session.hostName, { oneTimePassword: oncePassword });
+  }
+
   async function copyCommand(): Promise<void> {
     if (!keygen) return;
     await navigator.clipboard.writeText(keygen);
@@ -339,7 +349,7 @@
       // A local tab is a shell on this machine (its profile), not a host.
       const id = session.localProfileId
         ? await terminalOpenLocal(session.localProfileId, term.cols || 80, term.rows || 24, channel)
-        : await terminalOpen(session.hostName, term.cols || 80, term.rows || 24, channel, progressKey);
+        : await terminalOpen(session.hostName, term.cols || 80, term.rows || 24, channel, progressKey, session.oneTimePassword);
       connectPhase = 'open';
       clearTimeout(showTimer);
       stopProgress?.();
@@ -489,6 +499,21 @@
         </ol>
         {#if connectPhase === 'failed'}
           <p class="rounded-lg bg-surface-inset px-3 py-2 text-left text-sm text-muted" role="alert">{connectError}</p>
+          {#if askPassword}
+            <form class="mx-auto w-72 space-y-2 pt-1 text-left" onsubmit={signInOnce}>
+              <label class="block space-y-1 text-xs font-medium text-muted">
+                <span>Password for {connectHost ? displayReference(connectHost.user) : 'this host'}</span>
+                <input
+                  bind:value={oncePassword}
+                  type="password"
+                  autocomplete="off"
+                  class="w-full rounded-lg bg-surface-inset px-3 py-2 text-sm text-fg outline-none focus-visible:ring-2 focus-visible:ring-focus"
+                />
+              </label>
+              <p class="text-xs text-faint">Used for this connection only, not saved.</p>
+              <button type="submit" class={btn} disabled={!oncePassword}>Sign in with this password</button>
+            </form>
+          {/if}
           <div class="flex flex-wrap justify-center gap-2 pt-1">
             {#if keygen}
               <button type="button" class={btn} onclick={() => void copyCommand()} title={keygen}>

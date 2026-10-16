@@ -26,10 +26,11 @@ export const commands = {
     cols: number,
     rows: number,
     onOutput: Channel<TerminalBytes>,
-    progressKey?: string
+    progressKey?: string,
+    oneTimePassword?: string
   ): Promise<Result<number, CommandError>> {
     try {
-      const sessionId = (await invoke('terminal_open', hostName, cols, rows, progressKey)) as number;
+      const sessionId = (await invoke('terminal_open', hostName, cols, rows, progressKey, oneTimePassword)) as number;
       onOutput.attach(`terminal-output-${sessionId}`);
       return { status: 'ok', data: sessionId };
     } catch (e) {
@@ -685,7 +686,13 @@ export type RdpCredentialsDto = { username: string; password: string; domain?: s
 /** Ready to connect, or first ask for credentials the profile doesn't store. */
 export type RdpEmbeddedOpenDto =
   | ({ kind: 'ready' } & RdpEmbeddedSessionDto)
-  | { kind: 'credentials'; username?: string | null; domain?: string | null };
+  | {
+      kind: 'credentials';
+      username?: string | null;
+      domain?: string | null;
+      /** Why it asks: 1Password couldn't give the sign-in. */
+      reason?: string | null;
+    };
 
 /** What the embedded RDP client needs to connect (`rdp_embedded_open`). */
 export type RdpEmbeddedSessionDto = {
@@ -770,6 +777,8 @@ export type VncEmbeddedSessionDto = {
   url: string;
   username?: string | null;
   password?: string | null;
+  /** 1Password couldn't give the sign-in: why, for the tab's own sign-in prompt. */
+  signInProblem?: string | null;
 };
 
 /** Why an embedded VNC session couldn't connect. */

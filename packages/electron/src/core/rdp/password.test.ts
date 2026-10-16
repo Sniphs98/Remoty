@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { clearSecretCache, setOpRunner } from '../secrets/onePassword.js';
-import { connectionPassword, resolveConnection } from './password.js';
+import { connectionPassword, resolveConnection, resolveForSignIn } from './password.js';
 
 describe('connectionPassword', () => {
   afterEach(() => {
@@ -74,5 +74,44 @@ describe('connectionPassword', () => {
   it("says what's wrong when 1Password can't be asked", async () => {
     setOpRunner(async () => Promise.reject(Object.assign(new Error('spawn op ENOENT'), { code: 'ENOENT' })));
     await expect(connectionPassword({ passwordRef: 'op://Servers/win11/password' })).rejects.toThrow('1Password CLI (op) not found');
+  });
+});
+
+describe('resolveForSignIn', () => {
+  afterEach(() => {
+    setOpRunner(undefined);
+    clearSecretCache();
+  });
+
+  const refs = {
+    hostname: '10.0.0.7',
+    port: 3389,
+    username: 'op://Servers/win11/username',
+    passwordRef: 'op://Servers/win11/password'
+  };
+
+  it("leaves the sign-in out and says why when 1Password can't give it — the address still counts", async () => {
+    setOpRunner(async () => {
+      throw Object.assign(new Error('failed'), { stderr: '[ERROR] item not found', code: 1 });
+    });
+    const { connection, signInProblem } = await resolveForSignIn(refs);
+    expect(connection).toMatchObject({ hostname: '10.0.0.7', port: 3389, username: undefined, password: undefined });
+    expect(signInProblem).toMatch(/1Password/);
+  });
+
+  it('with sign-in details typed in the tab, does not ask 1Password for the sign-in at all', async () => {
+    const op = vi.fn(async () => ({ stdout: 'x', stderr: '' }));
+    setOpRunner(op);
+    const { connection, signInProblem } = await resolveForSignIn(refs, { username: 'admin', password: 'typed', domain: '' });
+    expect(connection).toMatchObject({ username: 'admin', password: 'typed', domain: undefined });
+    expect(signInProblem).toBeUndefined();
+    expect(op).not.toHaveBeenCalled();
+  });
+
+  it('an address that only 1Password knows still has to come through', async () => {
+    setOpRunner(async () => {
+      throw Object.assign(new Error('failed'), { stderr: '[ERROR] locked', code: 1 });
+    });
+    await expect(resolveForSignIn({ ...refs, hostname: 'op://Servers/win11/host' })).rejects.toThrow(/1Password/);
   });
 });

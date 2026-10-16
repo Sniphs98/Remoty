@@ -58,7 +58,15 @@ async function boot(page: Page, opts: { launch?: Rec; connections?: Rec[] } = {}
             // A profile without a stored password: the viewer asks first. With what's
             // typed, there's no gateway behind the stub — the viewer has to say so.
             const typed = args[1] as { username: string; password: string } | undefined;
-            if (!typed) return Promise.resolve({ kind: 'credentials', username: 'admin' });
+            if (!typed) {
+              // A profile whose sign-in is in 1Password, which is locked: the reason comes along.
+              const saved = state.connections.find((c) => c.id === args[0]) as { passwordRef?: string } | undefined;
+              return Promise.resolve(
+                saved?.passwordRef
+                  ? { kind: 'credentials', username: 'admin', reason: '1Password: the 1Password app is locked' }
+                  : { kind: 'credentials', username: 'admin' }
+              );
+            }
             (win.__rdpTyped as unknown[]).push(typed);
             // Gets as far as trying to reach the server, as the gateway would report.
             for (const cb of listeners['rdp-connect-progress'] ?? []) cb({ key: args[2], stage: 'reach' });
@@ -487,4 +495,22 @@ test('connections sit in folders: from the editor, a new folder, and by dragging
   // Office stays as an empty folder that can be removed.
   await page.getByRole('button', { name: 'Remove folder Office' }).click();
   await expect(section('Office')).toHaveCount(0);
+});
+
+test("when 1Password can't give a connection's sign-in, the tab asks for it — for this connection only", async ({ page }) => {
+  await boot(page, {
+    connections: [{ id: 'c1', name: 'vault-pc', protocol: 'rdp', hostname: '10.0.0.5', port: 3389, username: 'admin', passwordRef: 'op://IT/vault-pc/password', hasPassword: false }]
+  });
+  await page.getByRole('button', { name: 'Switch to Remote Desktop' }).click();
+  await page.getByRole('button', { name: 'Connect to vault-pc' }).click();
+
+  await expect(page.getByText('Sign in to vault-pc')).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: "Couldn't get the sign-in from 1Password (the 1Password app is locked)" })).toBeVisible();
+  await expect(page.getByText('Used for this connection only, not saved.')).toBeVisible();
+  await page.screenshot({ path: 'test-results/op-fallback.png' });
+  await page.getByLabel('Password').fill('typed-once');
+  await page.getByRole('button', { name: 'Connect', exact: true }).click();
+  expect(await page.evaluate(() => (window as unknown as { __rdpTyped: unknown[] }).__rdpTyped)).toEqual([
+    { username: 'admin', password: 'typed-once', domain: '' }
+  ]);
 });

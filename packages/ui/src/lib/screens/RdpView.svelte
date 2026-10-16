@@ -27,6 +27,8 @@
   // of this tab, never saved.
   let credentials = $state<{ username: string; password: string; domain: string } | null>(null);
   let form = $state({ username: '', password: '', domain: '' });
+  /** 1Password couldn't give the profile's sign-in: why, above the form that asks for it. */
+  let signInProblem = $state<string | null>(null);
   let passwordEl = $state<HTMLInputElement>();
   let problem = $state<string | null>(null);
   let notice = $state<string | null>(null);
@@ -116,6 +118,7 @@
       if (destroyed) return;
       if (opened.kind === 'credentials') {
         form = { username: opened.username ?? '', password: '', domain: opened.domain ?? '' };
+        signInProblem = opened.reason ?? null;
         phase = 'credentials';
         sessions.setStatus(session.id, 'unknown');
         requestAnimationFrame(() => passwordEl?.focus());
@@ -454,6 +457,11 @@
           {:else if phase === 'credentials'}
             <form class="w-80 space-y-3 text-left" onsubmit={signIn}>
               <p class="text-center font-medium">Sign in to {session.hostName}</p>
+              {#if signInProblem}
+                <p class="rounded-lg bg-surface-inset px-3 py-2 text-xs text-status-warn" role="status">
+                  Couldn't get the sign-in from 1Password ({signInProblem.replace(/^1Password:\s*/, '')}). Enter it here instead.
+                </p>
+              {/if}
               <label class="block space-y-1 text-xs font-medium text-muted">
                 <span>Username</span>
                 <input bind:value={form.username} class={field} autocomplete="off" />

@@ -35,6 +35,9 @@ export interface Session {
   /** For a local terminal (a shell on this machine, no host): its profile id — see
    *  `TerminalProfileDto`. `hostName` then holds the profile's label. */
   localProfileId?: string;
+  /** A password typed for this tab only (1Password couldn't give the host's): used to
+   *  sign in once, kept in memory with the tab, never saved. */
+  oneTimePassword?: string;
 }
 
 /** The visible session label: just the host name. The type (terminal/SFTP) is already
@@ -54,7 +57,7 @@ function createSessions() {
   let nextId = 1;
   return {
     subscribe,
-    spawn(kind: SessionKind, hostName: string, extra: Pick<Session, 'rdpConnectionId' | 'localProfileId'> = {}): Session {
+    spawn(kind: SessionKind, hostName: string, extra: Pick<Session, 'rdpConnectionId' | 'localProfileId' | 'oneTimePassword'> = {}): Session {
       const session: Session = { id: nextId++, kind, hostName, status: 'connecting', ...extra };
       update((list) => [...list, session]);
       return session;

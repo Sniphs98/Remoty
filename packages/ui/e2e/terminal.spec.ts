@@ -10,6 +10,8 @@ import { expect, test, type Page } from '@playwright/test';
 const HOSTS = [
   { name: 'web-1', hostname: 'web-1.example.com', user: 'deploy', port: 22, tags: ['prod'], source: 'manual', hasKey: true },
   { name: 'db-1', hostname: 'db-1.example.com', user: 'root', port: 22, tags: [], source: 'manual', hasKey: false },
+  // Its password is in a 1Password that's locked: sign-in fails until one is typed.
+  { name: 'vault', hostname: '10.0.0.9', user: 'deploy', port: 22, tags: [], source: 'manual', hasKey: false, passwordRef: 'op://IT/vault/password' },
   // Rebuilt since the last connection: its host key no longer matches.
   { name: 'rebuilt', hostname: '127.0.0.1', user: 'remoty', port: 2222, tags: [], source: 'manual', hasKey: false }
 ];
@@ -39,6 +41,7 @@ async function boot(
       const terminalCommands: string[] = [];
       win.__terminalCommands = terminalCommands;
       win.__localOpened = [];
+      win.__oneTimePasswords = [];
       const terminalWrites = { text: '' };
       win.__terminalWrites = terminalWrites;
       const terminalResizes: Array<{ cols: number; rows: number }> = [];
@@ -78,6 +81,13 @@ async function boot(
               return Promise.resolve(sid);
             }
             case 'terminal_open': {
+              if (args[0] === 'vault') {
+                const typedPassword = args[4] as string | undefined;
+                (win.__oneTimePasswords as unknown[]).push(typedPassword ?? null);
+                if (!typedPassword) {
+                  return Promise.reject({ message: 'SSH authentication failed for vault (1Password: the 1Password app is locked)' });
+                }
+              }
               if (args[0] === 'rebuilt') {
                 // Gets as far as the host key, as the main process would report — then refuses.
                 const key = args[3];
@@ -503,4 +513,21 @@ test('a terminal that cannot connect shows the steps, where it stopped and why, 
   await expect(page.getByText('Could not connect to rebuilt')).toBeVisible();
   await page.getByRole('button', { name: 'Close tab' }).click();
   await expect(page.getByRole('button', { name: 'rebuilt · terminal', exact: true })).toHaveCount(0);
+});
+
+test("when 1Password can't give a host's password, the tab asks for one — for this connection only", async ({ page }) => {
+  await boot(page);
+  await page.getByTitle('sh on vault').click();
+
+  await expect(page.getByText('Could not connect to vault')).toBeVisible();
+  await expect(page.getByRole('alert')).toContainText('1Password');
+  await page.getByLabel('Password for deploy').fill('typed-once');
+  await expect(page.getByText('Used for this connection only, not saved.')).toBeVisible();
+  await page.screenshot({ path: 'test-results/ssh-op-fallback.png', animations: 'disabled' });
+  await page.getByRole('button', { name: 'Sign in with this password' }).click();
+
+  // A fresh tab, signed in with the typed password: the shell is there.
+  await expect(page.locator('.xterm-rows')).toContainText('remoty-ready');
+  await expect(page.getByRole('button', { name: 'vault · terminal', exact: true })).toHaveCount(1);
+  expect(await page.evaluate(() => (window as unknown as { __oneTimePasswords: unknown[] }).__oneTimePasswords)).toEqual([null, 'typed-once']);
 });

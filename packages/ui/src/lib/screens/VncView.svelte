@@ -25,6 +25,8 @@
   // for reconnects of this tab, never saved.
   let credentials = $state<{ username?: string; password: string } | null>(null);
   let form = $state({ username: '', password: '' });
+  /** 1Password couldn't give the profile's sign-in: why, above the prompt that asks for it. */
+  let signInProblem = $state<string | null>(null);
   let askUsername = $state(false);
   let passwordEl = $state<HTMLInputElement>();
   let problem = $state<string | null>(null);
@@ -90,6 +92,7 @@
       const RFB = await loadNoVnc();
       if (destroyed) return;
       const dto = await vncEmbeddedOpen(session.rdpConnectionId, progressKey);
+      signInProblem = dto.signInProblem ?? null;
       if (destroyed) {
         void vncEmbeddedClose(dto.token).catch(() => {});
         return;
@@ -305,6 +308,11 @@
           {:else if phase === 'credentials'}
             <form class="w-80 space-y-3 text-left" onsubmit={signIn}>
               <p class="text-center font-medium">Sign in to {session.hostName}</p>
+              {#if signInProblem}
+                <p class="rounded-lg bg-surface-inset px-3 py-2 text-xs text-status-warn" role="status">
+                  Couldn't get the sign-in from 1Password ({signInProblem.replace(/^1Password:\s*/, '')}). Enter it here instead.
+                </p>
+              {/if}
               {#if askUsername}
                 <label class="block space-y-1 text-xs font-medium text-muted">
                   <span>Username</span>

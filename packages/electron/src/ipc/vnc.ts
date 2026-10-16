@@ -3,7 +3,7 @@ import type { Duplex } from 'node:stream';
 import { shell, type IpcMain } from 'electron';
 
 import { loadRemoteDesktopConnections, type RemoteDesktopConnection } from '../core/config/remoteDesktop.js';
-import { resolveConnection } from '../core/rdp/password.js';
+import { resolveConnection, resolveForSignIn } from '../core/rdp/password.js';
 import { openTunnel, type RdpTunnel } from '../core/rdp/tunnel.js';
 import { SshSession } from '../core/ssh/session.js';
 import { VncGateway } from '../core/vnc/gateway.js';
@@ -75,7 +75,9 @@ export function registerVncIpc(ipcMain: IpcMain, state: GuiState): void {
       try {
         const saved = await vncConnection(connectionId);
         progress('onePassword');
-        const connection = await resolveConnection(saved);
+        // 1Password not giving the sign-in isn't the end: noVNC asks for it when the
+        // server wants it, and the tab says why.
+        const { connection, signInProblem } = await resolveForSignIn(saved);
 
         let ssh: SshSession | undefined;
         if (connection.viaHost) {
@@ -94,7 +96,8 @@ export function registerVncIpc(ipcMain: IpcMain, state: GuiState): void {
           url: await gateway.url(token),
           // Handed to noVNC up front so it signs in by itself; without them it asks.
           username: connection.username,
-          password: connection.password
+          password: connection.password,
+          ...(signInProblem ? { signInProblem } : {})
         };
       } catch (err) {
         throw toCommandError(err);
