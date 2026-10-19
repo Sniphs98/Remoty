@@ -97,6 +97,11 @@ describe('validateAutomation', () => {
     expect(validateAutomation(f, snippetsById)).toEqual([]);
   });
 
+  it('flags a choice parameter with no options', () => {
+    const f = automation([node({ id: 'a', snippetId: 'local-x' })], [], [{ name: 'env', kind: 'choice', options: [' '] }]);
+    expect(validateAutomation(f, snippetsById)).toEqual(['choice parameter "env" needs at least one option']);
+  });
+
   it('flags an unknown snippetId', () => {
     const f = automation([node({ id: 'a', snippetId: 'does-not-exist' })]);
     expect(validateAutomation(f, snippetsById)[0]).toMatch(/unknown snippet/);
@@ -244,6 +249,12 @@ describe('missingParamValues', () => {
   it('flags a blank (whitespace-only) value the same as a missing one', () => {
     const f = automationWithParams([{ name: 'version', kind: 'text' }]);
     expect(missingParamValues(f, { version: '   ' })).toEqual(['version']);
+  });
+
+  it('takes only one of its options for a choice parameter', () => {
+    const f = automationWithParams([{ name: 'env', kind: 'choice', options: ['dev', 'prod'] }]);
+    expect(missingParamValues(f, { env: 'prod' })).toEqual([]);
+    expect(missingParamValues(f, { env: 'staging' })).toEqual(['env']);
   });
 });
 

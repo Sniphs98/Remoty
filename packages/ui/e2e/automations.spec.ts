@@ -38,6 +38,9 @@ async function boot(page: Page): Promise<void> {
     const cancelCalls: string[] = [];
     win.__cancelCalls = cancelCalls;
     let pendingCancel: (() => void) | undefined;
+    // The values each run_automation call was handed, for assertions.
+    const runParams: Array<Record<string, string>> = [];
+    win.__runParams = runParams;
 
     function fire(channel: string, payload: unknown): void {
       for (const cb of listeners[channel] ?? []) cb(payload);
@@ -134,6 +137,7 @@ async function boot(page: Page): Promise<void> {
           case 'run_automation': {
             const automationName = args[0] as string;
             const paramValues = (args[1] as Record<string, string>) ?? {};
+            runParams.push(paramValues);
             const automation = state.automations.find((f) => f.name === automationName) as
               | { nodes: Array<{ id: string; snippetId: string; label: string; continueOnError: boolean; target: string }>; edges: Array<{ from: string; to: string }> }
               | undefined;
@@ -1367,4 +1371,42 @@ test('a snippet delete that is refused says why in the dialog, which stays open'
   await dialog.getByRole('button', { name: 'Delete' }).click();
   await expect(dialog.getByRole('alert')).toHaveText("cannot delete: still used by automation 'user'");
   await expect(page.getByRole('button', { name: 'Delete used-snippet' })).toBeVisible();
+});
+
+test('a choice parameter is set up with its options and picked from a drop-down when it runs; a new host one is named host', async ({ page }) => {
+  await boot(page);
+  await page.getByRole('button', { name: 'Automations', exact: true }).click();
+  await page.getByRole('button', { name: 'New automation' }).first().click();
+  await page.getByLabel('Automation name').fill('pick-env');
+
+  // Turning a freshly added parameter into the host one names it "host".
+  await page.getByRole('button', { name: 'Add parameter' }).click();
+  await page.getByRole('combobox', { name: 'Parameter 1 kind' }).selectOption('host');
+  await expect(page.getByLabel('Parameter 1 name')).toHaveValue('host');
+  await page.getByRole('button', { name: 'Remove parameter host' }).click();
+
+  await page.getByRole('button', { name: 'Add parameter' }).click();
+  await page.getByLabel('Parameter 1 name').fill('env');
+  await page.getByRole('combobox', { name: 'Parameter 1 kind' }).selectOption('choice');
+  await page.getByLabel('Parameter 1 options').fill('dev, staging,, prod');
+  await expect(page.getByLabel('Parameter 1 options')).toHaveValue('dev, staging,, prod');
+  await page.getByRole('button', { name: 'Add a snippet to this automation' }).click();
+  await page.getByRole('dialog', { name: 'Pick a snippet' }).getByRole('button', { name: /If…/ }).click();
+  await page.getByRole('button', { name: 'Create automation' }).click();
+  await expect(page.getByRole('heading', { name: 'Automations' })).toBeVisible();
+
+  // Saved trimmed, the blank one dropped.
+  const params = await page.evaluate(
+    () => (window as unknown as { __automationState: { automations: Array<{ name: string; params: unknown[] }> } }).__automationState.automations.find((a) => a.name === 'pick-env')?.params
+  );
+  expect(params).toEqual([expect.objectContaining({ name: 'env', kind: 'choice', options: ['dev', 'staging', 'prod'] })]);
+
+  await page.getByRole('button', { name: 'Run pick-env' }).click();
+  const runDialog = page.getByRole('dialog', { name: 'Run automation' });
+  const env = runDialog.getByRole('combobox', { name: 'env' });
+  await expect(env).toHaveValue('dev');
+  await env.selectOption('prod');
+  await runDialog.getByRole('button', { name: 'Run', exact: true }).click();
+  const runParams = await page.evaluate(() => (window as unknown as { __runParams: unknown[] }).__runParams);
+  expect(runParams).toEqual([{ env: 'prod' }]);
 });

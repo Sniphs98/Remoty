@@ -59,6 +59,12 @@ describe('saveAutomations / loadAutomations round trip', () => {
     expect(await loadAutomations(path)).toEqual(original);
   });
 
+  it('round-trips a choice parameter with its options', async () => {
+    const original = [automation({ params: [{ name: 'env', kind: 'choice', options: ['dev', 'prod'] }] })];
+    await saveAutomations(original, path);
+    expect(await loadAutomations(path)).toEqual(original);
+  });
+
   it('round-trips an upload node', async () => {
     const original = [
       automation({

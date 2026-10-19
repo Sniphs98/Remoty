@@ -1,11 +1,13 @@
 <script lang="ts">
   // The automation's parameters and variables, in a bar under the editor's top bar: one
-  // chip per parameter (name, kind, and the value of a fixed one), then "Add parameter".
+  // chip per parameter (name, kind, the value of a fixed one or the options of a choice
+  // one), then "Add parameter".
   // Reads/writes `params` through `AUTOMATION_PARAMS_CONTEXT`, which AutomationEditor
   // provides.
   //
   // Text and host parameters are asked for when the automation runs; a host one is where
-  // every "on host" step runs. A fixed one is a variable set right here, never asked for.
+  // every "on host" step runs. A choice one is picked from a drop-down of the options set
+  // here (typed comma-separated). A fixed one is a variable set right here, never asked for.
   // Every node uses them as {{params.<name>}}.
   //
   // Edits apply on every keystroke. "Add parameter" appends one (text, a placeholder name)
@@ -52,7 +54,7 @@
 <div class="flex flex-wrap items-center gap-2 border-b border-default px-6 py-2">
   <span
     class="mr-1 text-xs font-medium text-muted"
-    title={'Text and host parameters are asked for when the automation runs; a host one is where every "on host" step runs. A fixed one is a variable set here. Use any of them as {{params.<name>}}.'}
+    title={'Text, host and choice parameters are asked for when the automation runs; a host one is where every "on host" step runs, a choice one is picked from its options. A fixed one is a variable set here. Use any of them as {{params.<name>}}.'}
   >
     Parameters
   </span>
@@ -77,8 +79,23 @@
       >
         <option value="text">text</option>
         <option value="host" disabled={hostTakenElsewhere(i)}>host</option>
+        <option value="choice">choice</option>
         <option value="fixed">fixed</option>
       </Select>
+      {#if param.kind === 'choice'}
+        <span class="text-xs text-faint">:</span>
+        <!-- Kept as typed (split on commas, not trimmed) so the text round-trips while typing;
+             AutomationEditor trims and drops blanks on save. -->
+        <input
+          value={(param.options ?? []).join(',')}
+          oninput={(e) => ctx.updateParam(param.name, { options: e.currentTarget.value.split(',') })}
+          class="{chipField} w-40 font-mono"
+          placeholder="dev, staging, prod"
+          aria-label="Parameter {i + 1} options"
+          title="The options to choose from when it runs, separated by commas"
+          spellcheck="false"
+        />
+      {/if}
       {#if param.kind === 'fixed'}
         <span class="text-xs text-faint">=</span>
         <input

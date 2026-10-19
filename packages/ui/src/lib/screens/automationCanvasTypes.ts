@@ -86,10 +86,14 @@ export interface AutomationParamsContext {
   removeParam: (name: string) => void;
   /** Renames and/or re-kinds the param currently named `name` — a no-op if the new
    *  name is blank, collides with another param, or the new kind would be a second
-   *  `'host'` param. Identifies the row being edited by its *current* name, since
+   *  `'host'` param. Turning a param with a placeholder name (`param`, `param-2`…) into
+   *  the host one also names it `host`, if that's free. Identifies the row being edited by its *current* name, since
    *  that's what's stable within one edit (see AutomationParamsBar.svelte's index-keyed
    *  `{#each}`, which is what actually keeps the input focused across keystrokes). */
-  updateParam: (name: string, patch: { name?: string; kind?: AutomationParamKindDto; value?: string }) => void;
+  updateParam: (
+    name: string,
+    patch: { name?: string; kind?: AutomationParamKindDto; value?: string; options?: string[] }
+  ) => void;
 }
 
 export const AUTOMATION_PARAMS_CONTEXT = 'automation-params';

@@ -242,6 +242,11 @@ export function validateAutomation(
     paramNames.add(param.name);
     paramNameCounts.set(param.name, (paramNameCounts.get(param.name) ?? 0) + 1);
     if (param.kind === 'host') hostParamCount += 1;
+    if (param.kind === 'choice') {
+      const options = (param.options ?? []).map((o) => o.trim()).filter(Boolean);
+      if (options.length === 0) problems.push(`choice parameter "${param.name}" needs at least one option`);
+      else if (new Set(options).size !== options.length) problems.push(`choice parameter "${param.name}" offers an option more than once`);
+    }
   }
   for (const [name, count] of paramNameCounts) {
     if (count > 1) problems.push(`parameter "${name}" is declared more than once`);
@@ -344,11 +349,17 @@ export function callLoop(start: string, from: string, automationsByName: Map<str
 
 /** Run-time check, distinct from `validateAutomation`'s save-time structural check: does
  *  `paramValues` (what the user typed into the "run this automation" prompt) supply a
- *  non-blank value for every parameter the automation declares? Returns each missing
- *  param's `label ?? name`; empty means ready to run. */
+ *  non-blank value for every parameter the automation declares — and, for a `'choice'`
+ *  one, one of its options? Returns each missing param's `label ?? name`; empty means
+ *  ready to run. */
 export function missingParamValues(automation: Automation, paramValues: Record<string, string>): string[] {
   return automation.params
-    .filter((p) => p.kind !== 'fixed' && !paramValues[p.name]?.trim())
+    .filter((p) => {
+      if (p.kind === 'fixed') return false;
+      const value = paramValues[p.name]?.trim();
+      if (!value) return true;
+      return p.kind === 'choice' && !(p.options ?? []).some((o) => o.trim() === value);
+    })
     .map((p) => p.label || p.name);
 }
 

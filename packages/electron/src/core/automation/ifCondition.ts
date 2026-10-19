@@ -37,5 +37,5 @@ export function parseIfBranch(raw: unknown, ctx: string): IfBranch | undefined {
 
 /** A parameter's `kind`, or `undefined` when it isn't one. */
 export function paramKind(raw: unknown): AutomationParamKind | undefined {
-  return raw === 'text' || raw === 'host' || raw === 'fixed' ? raw : undefined;
+  return raw === 'text' || raw === 'host' || raw === 'fixed' || raw === 'choice' ? raw : undefined;
 }
