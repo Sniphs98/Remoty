@@ -7,6 +7,7 @@
   import { onDestroy, onMount } from 'svelte';
   import type * as Monaco from 'monaco-editor';
   import { theme } from '$lib/stores/theme';
+  import { monacoTheme } from '$lib/theme/monacoTheme';
 
   let {
     value = $bindable(''),
@@ -44,7 +45,7 @@
         language,
         ariaLabel,
         placeholder,
-        theme: $theme === 'dark' ? 'vs-dark' : 'vs',
+        theme: monacoTheme(monaco, $theme),
         automaticLayout: true,
         minimap: { enabled: false },
         fontSize: 13,
@@ -61,7 +62,7 @@
       // `\n`; the runners normalize what's already saved (normalizeShellCommand).
       editor.getModel()?.setEOL(monaco.editor.EndOfLineSequence.LF);
       editor.onDidChangeModelContent(() => (value = editor!.getValue()));
-      themeUnsub = theme.subscribe((t) => monaco.editor.setTheme(t === 'dark' ? 'vs-dark' : 'vs'));
+      themeUnsub = theme.subscribe((t) => monaco.editor.setTheme(monacoTheme(monaco, t)));
       cleanup = onReady?.(monaco, editor) || undefined;
       ready = true;
     })();
