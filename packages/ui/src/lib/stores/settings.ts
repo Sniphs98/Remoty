@@ -66,6 +66,12 @@ function createRefreshInterval() {
   return {
     subscribe,
     set: (seconds: number) => apply(seconds, true),
+    /** Take on the interval another window set (its localStorage mirror changed). */
+    adopt(raw: string | null): void {
+      if (raw == null) return;
+      const value = clampInterval(raw);
+      if (value !== current) apply(value, false);
+    },
     /** Reconcile with the canonical settings-store value once the Electron bridge is reachable. */
     async hydrate(): Promise<void> {
       try {
@@ -81,6 +87,7 @@ function createRefreshInterval() {
 }
 
 export const refreshInterval = createRefreshInterval();
+export const REFRESH_INTERVAL_LOCAL_KEY = LOCAL_KEY;
 
 /** Drive `refresh` on the current interval, re-arming whenever the interval changes.
  *  Returns a disposer. Kept free of the ipc layer so it stays unit-testable — the

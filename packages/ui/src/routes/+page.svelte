@@ -19,8 +19,13 @@
   import SftpView from '$lib/screens/SftpView.svelte';
   import RdpView from '$lib/screens/RdpView.svelte';
   import VncView from '$lib/screens/VncView.svelte';
+  import { isSettingsWindow } from '$lib/settingsWindow';
+
+  // The same app runs in the Settings window, showing only Settings.
+  const settingsWindow = isSettingsWindow();
 
   onMount(async () => {
+    if (settingsWindow) return;
     try {
       hosts.set(await listHosts());
     } catch (err) {
@@ -35,48 +40,55 @@
     $activeEntity.kind === 'dashboard' ||
       $activeEntity.kind === 'automations' ||
       $activeEntity.kind === 'remoteDesktop' ||
-      $activeEntity.kind === 'settings' ||
       $activeEntity.kind === 'automation'
   );
 </script>
 
-<AppShell>
-  <div class="relative h-full">
-    {#each $sessions as s (s.id)}
-      {#if s.kind === 'terminal'}
-        <TerminalView session={s} active={activeSessionId === s.id} />
-      {:else if s.kind === 'rdp'}
-        <RdpView session={s} active={activeSessionId === s.id} />
-      {:else if s.kind === 'vnc'}
-        <VncView session={s} active={activeSessionId === s.id} />
-      {:else}
-        <SftpView session={s} active={activeSessionId === s.id} />
-      {/if}
-    {/each}
+<svelte:head>
+  {#if settingsWindow}<title>Settings</title>{/if}
+</svelte:head>
 
-    {#if selectorActive}
-      <!-- Inset the scroll container (not the content) below the macOS title-bar strip,
-           so selector content scrolls within its pane and never under the traffic lights. -->
-      <div class="absolute inset-0 pt-[var(--titlebar-h)]">
-        <div class="h-full overflow-auto overscroll-contain">
-          {#if $activeEntity.kind === 'dashboard'}
-            <Dashboard />
-          {:else if $activeEntity.kind === 'automations'}
-            <Snippets />
-          {:else if $activeEntity.kind === 'remoteDesktop'}
-            <RemoteDesktop />
-          {:else if $activeEntity.kind === 'automation'}
-            <!-- Keyed so switching between two different automations (or from an existing
-                 automation to a fresh "new automation" draft) fully remounts the editor rather
-                 than reusing its "seeded once from the prop" local state. -->
-            {#key $activeEntity.automationName}
-              <AutomationEditor automationName={$activeEntity.automationName} trail={$activeEntity.trail ?? []} />
-            {/key}
-          {:else if $activeEntity.kind === 'settings'}
-            <Settings />
-          {/if}
-        </div>
-      </div>
-    {/if}
+{#if settingsWindow}
+  <div class="h-screen bg-bg text-fg">
+    <Settings />
   </div>
-</AppShell>
+{:else}
+  <AppShell>
+    <div class="relative h-full">
+      {#each $sessions as s (s.id)}
+        {#if s.kind === 'terminal'}
+          <TerminalView session={s} active={activeSessionId === s.id} />
+        {:else if s.kind === 'rdp'}
+          <RdpView session={s} active={activeSessionId === s.id} />
+        {:else if s.kind === 'vnc'}
+          <VncView session={s} active={activeSessionId === s.id} />
+        {:else}
+          <SftpView session={s} active={activeSessionId === s.id} />
+        {/if}
+      {/each}
+
+      {#if selectorActive}
+        <!-- Inset the scroll container (not the content) below the macOS title-bar strip,
+             so selector content scrolls within its pane and never under the traffic lights. -->
+        <div class="absolute inset-0 pt-[var(--titlebar-h)]">
+          <div class="h-full overflow-auto overscroll-contain">
+            {#if $activeEntity.kind === 'dashboard'}
+              <Dashboard />
+            {:else if $activeEntity.kind === 'automations'}
+              <Snippets />
+            {:else if $activeEntity.kind === 'remoteDesktop'}
+              <RemoteDesktop />
+            {:else if $activeEntity.kind === 'automation'}
+              <!-- Keyed so switching between two different automations (or from an existing
+                   automation to a fresh "new automation" draft) fully remounts the editor rather
+                   than reusing its "seeded once from the prop" local state. -->
+              {#key $activeEntity.automationName}
+                <AutomationEditor automationName={$activeEntity.automationName} trail={$activeEntity.trail ?? []} />
+              {/key}
+            {/if}
+          </div>
+        </div>
+      {/if}
+    </div>
+  </AppShell>
+{/if}

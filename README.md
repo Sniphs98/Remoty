@@ -103,6 +103,9 @@ own data in `%APPDATA%\remoty\` (Windows), `~/Library/Application Support/remoty
 
 ### Using 1Password
 
+**Settings → 1Password** in the app walks through the setup below step by step, checks whether the
+1Password CLI is installed and gives you the command that installs it.
+
 **Addresses, ports, users, domains, passwords:** install the [1Password CLI](https://developer.1password.com/docs/cli/get-started/)
 (on Windows: `winget install AgileBits.1Password.CLI`) and turn on *Settings → Developer →
 Integrate with 1Password CLI* in the 1Password app. Then, in a host's or a remote desktop

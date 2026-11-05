@@ -18,8 +18,8 @@
     aiReport,
     aiSend
   } from '$lib/ipc/commands';
-  import { activeEntity } from '$lib/stores/activeEntity';
-  import { settingsSection } from '$lib/stores/settingsSection';
+  import { lastError } from '$lib/stores/notifications';
+  import { openSettingsWindow } from '$lib/settingsWindow';
   import AiCommandCard from './AiCommandCard.svelte';
   import type { CaptureResult } from './aiCapture';
   import { aiTextParts, relativeDay } from './aiText';
@@ -70,8 +70,7 @@
   const canContinue = $derived(!running && !!last && last.kind !== 'assistant' && pending.length === 0);
 
   function openAiSettings(): void {
-    settingsSection.set('ai');
-    activeEntity.selectSettings();
+    void openSettingsWindow('ai').catch((e) => lastError.set(message(e)));
   }
 
   async function scrollDown(): Promise<void> {

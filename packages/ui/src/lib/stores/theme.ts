@@ -68,6 +68,11 @@ function createTheme() {
     subscribe,
     set: (theme: Theme) => apply(theme, true),
     toggle: () => apply(current === 'dark' ? 'light' : 'dark', true),
+    /** Take on a theme another window picked (its localStorage mirror changed): shown
+     *  here too, without writing the canonical store again. */
+    adopt(raw: string | null): void {
+      if ((raw === 'light' || raw === 'dark') && raw !== current) apply(raw, false);
+    },
     /** Reconcile with the canonical settings-store value once the Electron
      *  bridge is reachable (called from the layout's onMount). */
     async hydrate(): Promise<void> {
@@ -85,3 +90,4 @@ function createTheme() {
 }
 
 export const theme = createTheme();
+export const THEME_LOCAL_KEY = LOCAL_KEY;

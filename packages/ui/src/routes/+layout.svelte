@@ -12,12 +12,26 @@
   import { sftpBookmarks } from '$lib/stores/sftpBookmarks';
   import { refreshInterval, driveMetricsRefresh } from '$lib/stores/settings';
   import { lastError } from '$lib/stores/notifications';
+  import { followOtherWindows } from '$lib/stores/crossWindow';
+  import { isSettingsWindow } from '$lib/settingsWindow';
 
   let { children } = $props();
 
   onMount(() => {
+    // The Settings window only needs the prefs it shows, kept in step with the main
+    // window; hosts, metrics and backend events belong to the main window.
+    if (isSettingsWindow()) {
+      void theme.hydrate();
+      void terminalRightClick.hydrate();
+      void terminalCopyOnSelect.hydrate();
+      void terminalGpu.hydrate();
+      void streamerMode.hydrate();
+      void refreshInterval.hydrate();
+      return followOtherWindows({ updates: false });
+    }
     let stop: (() => void) | undefined;
     let disposed = false;
+    const stopFollowingWindows = followOtherWindows({ updates: true });
     // Reconcile the persisted prefs with their canonical tauri-plugin-store values;
     // the synchronous localStorage mirrors already seeded the first paint (§5.1, §2).
     void theme.hydrate();
@@ -49,6 +63,7 @@
       stop?.();
       stopRefresh();
       stopFollowingMode();
+      stopFollowingWindows();
     };
   });
 </script>

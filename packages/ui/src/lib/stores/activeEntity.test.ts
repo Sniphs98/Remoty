@@ -64,17 +64,17 @@ describe('activeEntity — leave guard', () => {
       held = leave;
       return true;
     });
-    activeEntity.selectSettings();
+    activeEntity.selectRemoteDesktop();
     expect(get(activeEntity)).toEqual({ kind: 'automation', automationName: 'deploy' });
     held?.();
-    expect(get(activeEntity)).toEqual({ kind: 'settings' });
+    expect(get(activeEntity)).toEqual({ kind: 'remoteDesktop' });
     remove();
   });
 
   it('lets every switch through once removed, or when the guard declines', () => {
     const remove = activeEntity.setLeaveGuard(() => false);
-    activeEntity.selectSettings();
-    expect(get(activeEntity)).toEqual({ kind: 'settings' });
+    activeEntity.selectRemoteDesktop();
+    expect(get(activeEntity)).toEqual({ kind: 'remoteDesktop' });
     remove();
     const removeHolding = activeEntity.setLeaveGuard(() => true);
     removeHolding();
