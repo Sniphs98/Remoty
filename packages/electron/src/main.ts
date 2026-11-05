@@ -52,6 +52,7 @@ function windowIcon(): string | undefined {
 const REVEAL_FALLBACK_MS = 3000;
 
 let mainWindow: BrowserWindow | undefined;
+let settingsWindow: BrowserWindow | undefined;
 const state = new GuiState(() => mainWindow);
 
 // Must run before `app.whenReady()`.
@@ -97,13 +98,73 @@ function createWindow(): BrowserWindow {
   // process running — there is no tray icon to recover it from.
   setTimeout(reveal, REVEAL_FALLBACK_MS);
 
-  if (process.env.REMOTY_DEV_SERVER_URL) {
-    void win.loadURL(process.env.REMOTY_DEV_SERVER_URL);
-  } else {
-    void win.loadURL(`${APP_ORIGIN}/`);
-  }
+  loadApp(win);
 
   return win;
+}
+
+/** Loads the app into `win`; `query` picks what it shows (`?window=settings`). */
+function loadApp(win: BrowserWindow, query = ''): void {
+  const base = process.env.REMOTY_DEV_SERVER_URL ?? `${APP_ORIGIN}/`;
+  void win.loadURL(query ? new URL(query, base).toString() : base);
+}
+
+/**
+ * Settings in a window of its own, a child of the main window: it can be moved
+ * aside while the main window stays usable, and stays above it. One at a time —
+ * asking again brings the open one to the front. Prefs it changes reach the main
+ * window through the renderer's shared localStorage (see `stores/crossWindow.ts`).
+ */
+function openSettingsWindow(): void {
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    if (settingsWindow.isMinimized()) settingsWindow.restore();
+    settingsWindow.show();
+    settingsWindow.focus();
+    return;
+  }
+
+  const parent = mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined;
+  const win = new BrowserWindow({
+    title: 'Settings',
+    icon: windowIcon(),
+    parent,
+    width: 960,
+    height: 720,
+    minWidth: 640,
+    minHeight: 480,
+    backgroundColor: BACKGROUND_COLOR,
+    autoHideMenuBar: true,
+    show: false,
+    webPreferences: {
+      preload: join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      sandbox: true,
+      nodeIntegration: false
+    }
+  });
+  settingsWindow = win;
+  win.on('closed', () => {
+    if (settingsWindow === win) settingsWindow = undefined;
+  });
+
+  // Centred over the main window rather than wherever the OS puts a new one.
+  if (parent) {
+    const p = parent.getBounds();
+    const [w, h] = win.getSize();
+    win.setPosition(Math.round(p.x + (p.width - w) / 2), Math.round(p.y + (p.height - h) / 2));
+  }
+
+  let shown = false;
+  const show = (): void => {
+    if (shown || win.isDestroyed()) return;
+    shown = true;
+    win.show();
+    win.focus();
+  };
+  win.webContents.once('did-finish-load', show);
+  setTimeout(show, REVEAL_FALLBACK_MS);
+
+  loadApp(win, '?window=settings');
 }
 
 app.whenReady().then(async () => {
@@ -144,6 +205,10 @@ app.whenReady().then(async () => {
   registerOnePasswordIpc(ipcMain);
   registerGitHubIpc(ipcMain);
   registerAiIpc(ipcMain, state);
+  ipcMain.handle('open_settings_window', () => {
+    openSettingsWindow();
+    return null;
+  });
 
   // Pre-load the shared host config so the first `list_hosts` paints
   // immediately, before the renderer's own `reload_hosts` call. A load

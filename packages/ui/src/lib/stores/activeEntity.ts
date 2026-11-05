@@ -9,7 +9,6 @@ export type ActiveEntity =
   | { kind: 'dashboard' }
   | { kind: 'automations' }
   | { kind: 'remoteDesktop' }
-  | { kind: 'settings' }
   | { kind: 'session'; id: number }
   /** A single Automation filling the whole content area — the svelte-flow canvas needs the
    *  room a modal can't give it. `automationName: null` is a new, unsaved automation; a string
@@ -44,7 +43,6 @@ function createActiveEntity() {
     selectDashboard: () => go({ kind: 'dashboard' }),
     selectAutomations: () => go({ kind: 'automations' }),
     selectRemoteDesktop: () => go({ kind: 'remoteDesktop' }),
-    selectSettings: () => go({ kind: 'settings' }),
     activateSession: (id: number) => go({ kind: 'session', id }),
     selectAutomation: (automationName: string | null, trail: string[] = []) =>
       go({ kind: 'automation', automationName, ...(trail.length > 0 ? { trail } : {}) }),

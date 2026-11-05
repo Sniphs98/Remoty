@@ -1,6 +1,6 @@
 <script lang="ts">
-  // Settings (tech-gui.md §4.3) as one window in the middle of the page: the parts on its
-  // left (across its top on a narrow window), the chosen part beside them. Every control
+  // Settings (tech-gui.md §4.3), filling a window of its own beside the main one: the
+  // parts on its left (across its top on a narrow window), the chosen part beside them. Every control
   // sits with its label — a switch before it, a choice below it — never at a far edge. General holds the
   // theme mirrored from the sidebar (§5.1), streamer mode and the metric auto-refresh
   // interval; Updates the update preferences (`check_on_startup`) and a manual check,
@@ -12,7 +12,7 @@
   import { streamerMode } from '$lib/stores/streamer';
   import { refreshInterval, REFRESH_OPTIONS } from '$lib/stores/settings';
   import { terminalCopyOnSelect, terminalGpu, terminalRightClick } from '$lib/stores/terminalPrefs';
-  import { offerUpdate } from '$lib/stores/update';
+  import { shareUpdate } from '$lib/stores/crossWindow';
   import { lastError } from '$lib/stores/notifications';
   import { checkUpdate, loadUpdateConfig, saveUpdateConfig } from '$lib/ipc/commands';
   import GitHubSettings from '$lib/components/GitHubSettings.svelte';
@@ -76,7 +76,7 @@
     try {
       const info = await checkUpdate();
       if (info) {
-        offerUpdate(info); // raise the banner too
+        shareUpdate(info); // raise the main window's banner too
         check = { kind: 'available', version: info.version };
       } else {
         check = { kind: 'upToDate' };
@@ -110,10 +110,8 @@
   });
 </script>
 
-<section class="flex h-full min-h-0 items-start justify-center overflow-hidden p-0 md:p-8 lg:p-12">
-  <div
-    class="flex h-full min-h-0 w-full max-w-5xl flex-col overflow-hidden bg-surface md:max-h-[52rem] md:flex-row md:rounded-2xl md:border md:border-default md:shadow-soft"
-  >
+<section class="flex h-full min-h-0 overflow-hidden">
+  <div class="flex h-full min-h-0 w-full flex-col overflow-hidden bg-surface md:flex-row">
     <nav
       class="flex shrink-0 gap-1 overflow-x-auto border-b border-default bg-bg p-3 md:w-60 md:flex-col md:overflow-visible md:border-b-0 md:border-r md:p-4"
       aria-label="Settings sections"

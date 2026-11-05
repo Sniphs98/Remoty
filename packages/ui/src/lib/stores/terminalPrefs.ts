@@ -61,6 +61,14 @@ function createPref<T>(localKey: string, storeKey: string, parse: (raw: unknown)
   return {
     subscribe,
     set: (value: T) => apply(value, true),
+    /** The localStorage key this pref is mirrored under. */
+    localKey,
+    /** Take on the value another window set (its localStorage mirror changed). */
+    adopt(raw: string | null): void {
+      if (raw == null) return;
+      const value = parse(raw);
+      if (value !== undefined) apply(value, false);
+    },
     async hydrate(): Promise<void> {
       try {
         const store = await settingsStore();

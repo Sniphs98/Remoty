@@ -314,6 +314,10 @@ export const commands = {
   async onePasswordStatus(): Promise<Result<OnePasswordStatusDto, CommandError>> {
     return call('onepassword_status');
   },
+  /** Opens the Settings window, or brings it to the front. */
+  async openSettingsWindow(): Promise<Result<null, CommandError>> {
+    return call('open_settings_window');
+  },
   async rdpForgetCertificate(connectionId: string): Promise<Result<null, CommandError>> {
     return call('rdp_forget_certificate', connectionId);
   },

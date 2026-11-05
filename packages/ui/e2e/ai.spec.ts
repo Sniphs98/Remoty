@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { openSettings } from './settingsWindow';
 
 // The AI helper beside a terminal (docs/concepts/ai-integration.md). The Electron bridge
 // is stubbed: `ai_*` commands answer like the main process would, with `ai-event`s for
@@ -9,7 +10,7 @@ const HOSTS = [{ name: 'web-1', hostname: 'web-1.example.com', user: 'deploy', p
 type Win = Window & { __aiReports: unknown[]; __aiSends: unknown[] };
 
 async function boot(page: Page, opts: { risk?: string } = {}): Promise<void> {
-  await page.addInitScript(
+  await page.context().addInitScript(
     ({ hosts, risk }) => {
       const win = window as unknown as Record<string, unknown>;
       localStorage.setItem('remoty-terminal-gpu', 'false');
@@ -51,6 +52,10 @@ async function boot(page: Page, opts: { risk?: string } = {}): Promise<void> {
       win.remoty = {
         invoke: (channel: string, ...args: unknown[]) => {
           switch (channel) {
+            // Settings has a window of its own; here a popup with the same stub.
+            case 'open_settings_window':
+              window.open('/?window=settings', 'remoty-settings');
+              return Promise.resolve(null);
             case 'list_hosts':
               return Promise.resolve(hosts);
             case 'terminal_open':
@@ -190,7 +195,7 @@ test('Ctrl+Shift+A opens and closes the panel', async ({ page }) => {
 });
 
 test('Settings → AI: the key is saved and tested, never shown again', async ({ page }) => {
-  await page.addInitScript(() => {
+  await page.context().addInitScript(() => {
     const win = window as unknown as Record<string, unknown>;
     const saved: unknown[] = [];
     win.__aiSaved = saved;
@@ -198,6 +203,10 @@ test('Settings → AI: the key is saved and tested, never shown again', async ({
     win.remoty = {
       invoke: (channel: string, ...args: unknown[]) => {
         switch (channel) {
+          // Settings has a window of its own; here a popup with the same stub.
+          case 'open_settings_window':
+            window.open('/?window=settings', 'remoty-settings');
+            return Promise.resolve(null);
           case 'list_hosts':
             return Promise.resolve([]);
           case 'ai_settings':
@@ -228,18 +237,18 @@ test('Settings → AI: the key is saved and tested, never shown again', async ({
     };
   });
   await page.goto('/');
-  await page.getByRole('button', { name: 'Settings' }).click();
-  await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'AI', exact: true }).click();
+  const settings = await openSettings(page);
+  await settings.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'AI', exact: true }).click();
 
-  await page.getByRole('button', { name: 'Test the AI connection' }).click();
-  await expect(page.getByText('no Anthropic API key yet — add one in Settings → AI')).toBeVisible();
+  await settings.getByRole('button', { name: 'Test the AI connection' }).click();
+  await expect(settings.getByText('no Anthropic API key yet — add one in Settings → AI')).toBeVisible();
 
-  await page.getByLabel('Claude API key', { exact: true }).fill('sk-ant-secret');
-  await page.getByRole('button', { name: 'Save AI settings and test' }).click();
-  await expect(page.getByText('Connected — using claude-opus-5-5.')).toBeVisible();
-  await expect(page.getByLabel('Claude API key', { exact: true })).toHaveValue('');
-  await expect(page.getByLabel('Claude API key', { exact: true })).toHaveAttribute('placeholder', 'Saved — leave blank to keep it');
-  expect(await page.evaluate(() => (window as unknown as { __aiSaved: unknown[] }).__aiSaved)).toEqual([
+  await settings.getByLabel('Claude API key', { exact: true }).fill('sk-ant-secret');
+  await settings.getByRole('button', { name: 'Save AI settings and test' }).click();
+  await expect(settings.getByText('Connected — using claude-opus-5-5.')).toBeVisible();
+  await expect(settings.getByLabel('Claude API key', { exact: true })).toHaveValue('');
+  await expect(settings.getByLabel('Claude API key', { exact: true })).toHaveAttribute('placeholder', 'Saved — leave blank to keep it');
+  expect(await settings.evaluate(() => (window as unknown as { __aiSaved: unknown[] }).__aiSaved)).toEqual([
     {
       provider: 'anthropic',
       replyToResult: true,
@@ -253,7 +262,7 @@ test('Settings → AI: the key is saved and tested, never shown again', async ({
 });
 
 test('Settings → AI: a subscription through Claude Code shows whether it is signed in', async ({ page }) => {
-  await page.addInitScript(() => {
+  await page.context().addInitScript(() => {
     const win = window as unknown as Record<string, unknown>;
     const saved: unknown[] = [];
     win.__aiSaved = saved;
@@ -262,6 +271,10 @@ test('Settings → AI: a subscription through Claude Code shows whether it is si
     win.remoty = {
       invoke: (channel: string, ...args: unknown[]) => {
         switch (channel) {
+          // Settings has a window of its own; here a popup with the same stub.
+          case 'open_settings_window':
+            window.open('/?window=settings', 'remoty-settings');
+            return Promise.resolve(null);
           case 'list_hosts':
             return Promise.resolve([]);
           case 'ai_settings':
@@ -300,31 +313,31 @@ test('Settings → AI: a subscription through Claude Code shows whether it is si
     };
   });
   await page.goto('/');
-  await page.getByRole('button', { name: 'Settings' }).click();
-  await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'AI', exact: true }).click();
+  const settings = await openSettings(page);
+  await settings.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'AI', exact: true }).click();
 
-  await page.getByRole('button', { name: 'Subscription' }).click();
-  const status = page.getByTestId('ai-cli-status');
+  await settings.getByRole('button', { name: 'Subscription' }).click();
+  const status = settings.getByTestId('ai-cli-status');
   await expect(status).toContainText('installed but not signed in');
   await expect(status).toContainText('claude auth login');
-  await expect(page.getByLabel('Claude API key', { exact: true })).toHaveCount(0);
+  await expect(settings.getByLabel('Claude API key', { exact: true })).toHaveCount(0);
 
   await status.getByRole('button', { name: 'Check again' }).click();
   await expect(status).toContainText('2.1.296 (Claude Code) — signed in (claude.ai)');
-  await expect(page.getByLabel('Program')).toHaveAttribute('placeholder', '/usr/local/bin/claude');
+  await expect(settings.getByLabel('Program')).toHaveAttribute('placeholder', '/usr/local/bin/claude');
 
-  await page.getByRole('button', { name: 'Save AI settings and test' }).click();
-  await expect(page.getByText('Ready — Claude Code is signed in.')).toBeVisible();
-  const [input] = (await page.evaluate(() => (window as unknown as { __aiSaved: unknown[] }).__aiSaved)) as { provider: string }[];
+  await settings.getByRole('button', { name: 'Save AI settings and test' }).click();
+  await expect(settings.getByText('Ready — Claude Code is signed in.')).toBeVisible();
+  const [input] = (await settings.evaluate(() => (window as unknown as { __aiSaved: unknown[] }).__aiSaved)) as { provider: string }[];
   expect(input.provider).toBe('claude-cli');
 
   // OpenAI with a subscription is the Codex CLI.
-  await page.getByRole('button', { name: 'OpenAI' }).click();
+  await settings.getByRole('button', { name: 'OpenAI' }).click();
   await expect(status).toContainText('ChatGPT plan through the Codex CLI');
 });
 
 test('Settings → AI: signing in to ChatGPT directly is marked experimental and can be undone', async ({ page }) => {
-  await page.addInitScript(() => {
+  await page.context().addInitScript(() => {
     const win = window as unknown as Record<string, unknown>;
     const calls: string[] = [];
     const saved: unknown[] = [];
@@ -335,6 +348,10 @@ test('Settings → AI: signing in to ChatGPT directly is marked experimental and
       invoke: (channel: string, ...args: unknown[]) => {
         calls.push(channel);
         switch (channel) {
+          // Settings has a window of its own; here a popup with the same stub.
+          case 'open_settings_window':
+            window.open('/?window=settings', 'remoty-settings');
+            return Promise.resolve(null);
           case 'list_hosts':
             return Promise.resolve([]);
           case 'ai_settings':
@@ -365,24 +382,24 @@ test('Settings → AI: signing in to ChatGPT directly is marked experimental and
     };
   });
   await page.goto('/');
-  await page.getByRole('button', { name: 'Settings' }).click();
-  await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'AI', exact: true }).click();
+  const settings = await openSettings(page);
+  await settings.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'AI', exact: true }).click();
 
   // Only OpenAI offers it.
-  await expect(page.getByRole('button', { name: 'ChatGPT login' })).toHaveCount(0);
-  await page.getByRole('button', { name: 'OpenAI', exact: true }).click();
-  await page.getByRole('button', { name: 'ChatGPT login' }).click();
+  await expect(settings.getByRole('button', { name: 'ChatGPT login' })).toHaveCount(0);
+  await settings.getByRole('button', { name: 'OpenAI', exact: true }).click();
+  await settings.getByRole('button', { name: 'ChatGPT login' }).click();
 
-  const box = page.getByTestId('ai-chatgpt-login');
+  const box = settings.getByTestId('ai-chatgpt-login');
   await expect(box).toContainText('Experimental.');
   await expect(box).toContainText('Not signed in.');
   await box.getByRole('button', { name: 'Sign in with ChatGPT' }).click();
   await expect(box).toContainText('Finish signing in in your browser');
   await expect(box).toContainText('Signed in as me@example.com (plus)');
-  const [input] = (await page.evaluate(() => (window as unknown as { __aiSaved: unknown[] }).__aiSaved)) as { provider: string }[];
+  const [input] = (await settings.evaluate(() => (window as unknown as { __aiSaved: unknown[] }).__aiSaved)) as { provider: string }[];
   expect(input.provider).toBe('chatgpt');
 
   await box.getByRole('button', { name: 'Sign out' }).click();
   await expect(box).toContainText('Not signed in.');
-  expect(await page.evaluate(() => (window as unknown as { __calls: string[] }).__calls)).toContain('ai_chatgpt_logout');
+  expect(await settings.evaluate(() => (window as unknown as { __calls: string[] }).__calls)).toContain('ai_chatgpt_logout');
 });

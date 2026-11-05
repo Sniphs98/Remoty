@@ -77,7 +77,7 @@ describe('followSidebarMode', () => {
     stop();
   });
 
-  it('leaves open sessions and Settings alone', async () => {
+  it('leaves open sessions alone', async () => {
     const { followSidebarMode, spawnSession, activeEntity } = await fresh();
     const { sidebarMode } = await import('./sidebarMode');
     sidebarMode.set('ssh');
@@ -85,9 +85,8 @@ describe('followSidebarMode', () => {
     const s = spawnSession('terminal', 'web-1');
     sidebarMode.set('remoteDesktop');
     expect(get(activeEntity)).toEqual({ kind: 'session', id: s.id });
-    activeEntity.selectSettings();
     sidebarMode.set('ssh');
-    expect(get(activeEntity)).toEqual({ kind: 'settings' });
+    expect(get(activeEntity)).toEqual({ kind: 'session', id: s.id });
     stop();
   });
 });

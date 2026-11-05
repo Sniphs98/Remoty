@@ -26,6 +26,10 @@ function create() {
   const { subscribe, set } = writable<SettingsSection>(initial());
   return {
     subscribe,
+    /** Follow a section another window chose (its localStorage mirror changed). */
+    adopt(raw: string | null): void {
+      if (isSettingsSection(raw)) set(raw);
+    },
     set(section: SettingsSection): void {
       set(section);
       try {
@@ -38,3 +42,4 @@ function create() {
 }
 
 export const settingsSection = create();
+export const SETTINGS_SECTION_LOCAL_KEY = LOCAL_KEY;

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { openSettings } from './settingsWindow';
 
 // Terminal streaming vertical (tech-gui.md §3.1). e2e runs against the static SPA with
 // the Electron preload bridge absent, so we install a `window.remoty` stub at the
@@ -20,7 +21,7 @@ async function boot(
   page: Page,
   opts: { webOneDefaultPath?: string; webOneStartupCommand?: string; gpu?: boolean } = {}
 ): Promise<void> {
-  await page.addInitScript(
+  await page.context().addInitScript(
     ({ hosts, webOneDefaultPath, webOneStartupCommand, gpu }) => {
       const win = window as unknown as Record<string, unknown>;
       // These tests read terminal text back from xterm's DOM renderer; with GPU
@@ -64,6 +65,10 @@ async function boot(
       win.remoty = {
         invoke: (channel: string, ...args: unknown[]) => {
           switch (channel) {
+            // Settings has a window of its own; here a popup with the same stub.
+            case 'open_settings_window':
+              window.open('/?window=settings', 'remoty-settings');
+              return Promise.resolve(null);
             case 'list_hosts':
               return Promise.resolve(seededHosts);
             case 'reload_hosts':
@@ -289,9 +294,11 @@ test('right-click opens a Copy/Paste menu by default, and pastes directly once s
     .toContain('echo from-clipboard');
 
   // Switching the setting to "Paste" makes a right-click paste with no menu at all.
-  await page.getByLabel('Settings').click();
-  await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'Terminal' }).click();
-  await page.getByRole('button', { name: 'Paste', exact: true }).click();
+  // Settings is its own window; the main window follows what is picked there.
+  const settings = await openSettings(page);
+  await settings.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'Terminal' }).click();
+  await settings.getByRole('button', { name: 'Paste', exact: true }).click();
+  await settings.close();
   await page.getByRole('button', { name: 'web-1 · terminal', exact: true }).click();
 
   await page.evaluate(() => navigator.clipboard.writeText('second-paste'));

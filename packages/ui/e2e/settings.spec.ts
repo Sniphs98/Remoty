@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { openSettings } from './settingsWindow';
 
 // Settings + self-update (tech-gui.md §4.3). e2e runs against the static SPA with the
 // Electron preload bridge absent, so we install a `window.remoty` stub at the boundary
@@ -22,14 +23,22 @@ async function boot(
   page: Page,
   opts: { fireUpdateOnBoot: boolean; canSelfUpdate?: boolean; installFails?: boolean }
 ): Promise<void> {
-  await page.addInitScript(
+  await page.context().addInitScript(
     ({ hosts, update, fireUpdateOnBoot, installFails }) => {
       const listeners: Record<string, Array<(payload: unknown) => void>> = {};
-      const state = {
+      // The Settings window (a popup) shares the main window's stub state, the way both
+      // real windows talk to one main process.
+      const opener = window.opener as { __stubState?: unknown } | null;
+      const state = (opener?.__stubState as {
+        hosts: typeof hosts;
+        updateConfig: Record<string, unknown>;
+        github: { token: string; tokenRef: string };
+      }) ?? {
         hosts: hosts.map((h) => ({ ...h })),
         updateConfig: { checkOnStartup: true, skipVersion: '' } as Record<string, unknown>,
         github: { token: '', tokenRef: '' }
       };
+      (window as unknown as { __stubState: unknown }).__stubState = state;
       (window as unknown as { __github: unknown }).__github = state.github;
       const win = window as unknown as Record<string, unknown>;
 
@@ -40,6 +49,10 @@ async function boot(
       win.remoty = {
         invoke: (channel: string, ...args: unknown[]) => {
           switch (channel) {
+            // Settings has a window of its own; here a popup with the same stub.
+            case 'open_settings_window':
+              window.open('/?window=settings', 'remoty-settings');
+              return Promise.resolve(null);
             case 'list_hosts':
               return Promise.resolve([...state.hosts]);
             case 'reload_hosts':
@@ -127,32 +140,37 @@ async function boot(
 test('the footer gear opens Settings; theme, interval, and update prefs work', async ({ page }) => {
   await boot(page, { fireUpdateOnBoot: false });
 
-  await page.getByRole('button', { name: 'Settings' }).click();
-  await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
+  const settings = await openSettings(page);
+  await expect(settings.getByRole('heading', { name: 'General' })).toBeVisible();
 
-  // Theme mirrors the sidebar toggle (§5.1): the app boots dark; picking Light flips it.
-  // `exact` avoids the sidebar toggle whose label reads "Switch to light theme".
-  await page.getByRole('button', { name: 'Light', exact: true }).click();
+  // Theme mirrors the sidebar toggle (§5.1): the app boots dark; picking Light flips it
+  // in the Settings window and in the main window alike.
+  await settings.getByRole('button', { name: 'Light', exact: true }).click();
+  await expect(settings.locator('html')).toHaveAttribute('data-theme', 'light');
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
-  await page.getByRole('button', { name: 'Dark', exact: true }).click();
+  await settings.getByRole('button', { name: 'Dark', exact: true }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  // …and the other way round: the sidebar toggle reaches the Settings window.
+  await page.getByRole('button', { name: 'Switch to light theme' }).click();
+  await expect(settings.getByRole('button', { name: 'Light', exact: true })).toHaveAttribute('aria-pressed', 'true');
 
   // Auto-refresh interval is a segmented pref.
-  const tenSec = page.getByRole('button', { name: '10s', exact: true });
+  const tenSec = settings.getByRole('button', { name: '10s', exact: true });
   await tenSec.click();
   await expect(tenSec).toHaveAttribute('aria-pressed', 'true');
+  expect(await page.evaluate(() => localStorage.getItem('remoty-refresh-interval'))).toBe('10');
 
   // Check-on-startup persists via save_update_config (seeded true → toggles false).
-  await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'Updates' }).click();
-  await expect(page.getByRole('heading', { name: 'Updates' })).toBeVisible();
-  const startupSwitch = page.getByRole('switch', { name: 'Check for updates on startup' });
+  await settings.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'Updates' }).click();
+  await expect(settings.getByRole('heading', { name: 'Updates' })).toBeVisible();
+  const startupSwitch = settings.getByRole('switch', { name: 'Check for updates on startup' });
   await expect(startupSwitch).toHaveAttribute('aria-checked', 'true');
   await startupSwitch.click();
   await expect(startupSwitch).toHaveAttribute('aria-checked', 'false');
 
-  // A manual check surfaces the available version and raises the banner.
-  await page.getByRole('button', { name: 'Check now' }).click();
-  await expect(page.getByText('Version 2.0.0 is available.')).toBeVisible();
+  // A manual check surfaces the available version and raises the main window's banner.
+  await settings.getByRole('button', { name: 'Check now' }).click();
+  await expect(settings.getByText('Version 2.0.0 is available.')).toBeVisible();
   await expect(page.getByText('Update available — v2.0.0')).toBeVisible();
 });
 
@@ -209,20 +227,20 @@ test('a settings toggle preserves a skipVersion the banner wrote out-of-band', a
   await boot(page, { fireUpdateOnBoot: true });
 
   // Open Settings first so its config cache is seeded stale (skipVersion: '').
-  await page.getByRole('button', { name: 'Settings' }).click();
-  await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
-  await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'Updates' }).click();
+  const settings = await openSettings(page);
+  await settings.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'Updates' }).click();
+  await expect(settings.getByRole('switch', { name: 'Check for updates on startup' })).toHaveAttribute('aria-checked', 'true');
 
   // Now Skip on the banner: it writes skipVersion='2.0.0' to the shared config.
   await page.getByRole('button', { name: 'Skip', exact: true }).click();
   await expect(page.getByText('Update available — v2.0.0')).toHaveCount(0);
 
   // Flipping check-on-startup must read-modify-write fresh, not clobber the skip.
-  const startupSwitch = page.getByRole('switch', { name: 'Check for updates on startup' });
+  const startupSwitch = settings.getByRole('switch', { name: 'Check for updates on startup' });
   await startupSwitch.click();
   await expect(startupSwitch).toHaveAttribute('aria-checked', 'false');
 
-  const saved = await page.evaluate(
+  const saved = await settings.evaluate(
     () => (window as unknown as { __savedUpdateConfig?: Record<string, unknown> }).__savedUpdateConfig
   );
   expect(saved?.skipVersion).toBe('2.0.0');
@@ -279,62 +297,75 @@ test('the running version sits beside the Settings gear, and in its tooltip when
 
 test('Settings → GitHub: a token (or a 1Password reference) is saved and tested, never shown again', async ({ page }) => {
   await boot(page, { fireUpdateOnBoot: false });
-  await page.getByRole('button', { name: 'Settings' }).click();
+  const settings = await openSettings(page);
 
   // Nothing saved yet: testing says so.
-  await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'GitHub' }).click();
-  await page.getByRole('button', { name: 'Test connection' }).click();
-  await expect(page.getByText('no GitHub token yet — add one in Settings → GitHub')).toBeVisible();
+  await settings.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'GitHub' }).click();
+  await settings.getByRole('button', { name: 'Test connection' }).click();
+  await expect(settings.getByText('no GitHub token yet — add one in Settings → GitHub')).toBeVisible();
 
-  await page.getByLabel('Token', { exact: true }).fill('github_pat_secret');
-  await page.getByLabel('Check access to a repository (optional)').fill('Enable-Energy-Solutions/Frontend');
-  await page.getByRole('button', { name: 'Save and test' }).click();
-  await expect(page.getByText('Signed in as Sniphs98 — can see Enable-Energy-Solutions/Frontend (private).')).toBeVisible();
+  await settings.getByLabel('Token', { exact: true }).fill('github_pat_secret');
+  await settings.getByLabel('Check access to a repository (optional)').fill('Enable-Energy-Solutions/Frontend');
+  await settings.getByRole('button', { name: 'Save and test' }).click();
+  await expect(settings.getByText('Signed in as Sniphs98 — can see Enable-Energy-Solutions/Frontend (private).')).toBeVisible();
   // The field empties; the token isn't shown back, only that one is saved.
-  await expect(page.getByLabel('Token', { exact: true })).toHaveValue('');
-  await expect(page.getByLabel('Token', { exact: true })).toHaveAttribute('placeholder', 'Saved — leave blank to keep it');
+  await expect(settings.getByLabel('Token', { exact: true })).toHaveValue('');
+  await expect(settings.getByLabel('Token', { exact: true })).toHaveAttribute('placeholder', 'Saved — leave blank to keep it');
 
   // Switched to 1Password, the reference is what's saved.
-  await page.getByRole('button', { name: 'Token from 1Password' }).click();
-  await page.getByLabel('Token', { exact: true }).fill('op://Private/GitHub/token');
-  await page.getByRole('button', { name: 'Save and test' }).click();
-  expect(await page.evaluate(() => (window as unknown as { __github: { tokenRef: string } }).__github.tokenRef)).toBe('op://Private/GitHub/token');
+  await settings.getByRole('button', { name: 'Token from 1Password' }).click();
+  await settings.getByLabel('Token', { exact: true }).fill('op://Private/GitHub/token');
+  await settings.getByRole('button', { name: 'Save and test' }).click();
+  expect(await settings.evaluate(() => (window as unknown as { __github: { tokenRef: string } }).__github.tokenRef)).toBe('op://Private/GitHub/token');
 });
 
 test('Settings → 1Password: the setup steps, the install command, and a check again', async ({ page }) => {
   await boot(page, { fireUpdateOnBoot: false });
-  await page.getByRole('button', { name: 'Settings' }).click();
-  await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: '1Password' }).click();
+  const settings = await openSettings(page);
+  await settings.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: '1Password' }).click();
 
-  await expect(page.getByText("The 1Password CLI isn't installed yet. Follow the steps below.")).toBeVisible();
-  await expect(page.getByText('winget install AgileBits.1Password.CLI')).toBeVisible();
-  await expect(page.getByText('Settings → Developer → Integrate with 1Password CLI')).toBeVisible();
-  await expect(page.getByText('Settings → Developer → Use the SSH agent')).toBeVisible();
+  await expect(settings.getByText("The 1Password CLI isn't installed yet. Follow the steps below.")).toBeVisible();
+  await expect(settings.getByText('winget install AgileBits.1Password.CLI')).toBeVisible();
+  await expect(settings.getByText('Settings → Developer → Integrate with 1Password CLI')).toBeVisible();
+  await expect(settings.getByText('Settings → Developer → Use the SSH agent')).toBeVisible();
 
-  await page.getByRole('button', { name: 'Download 1Password' }).click();
-  expect(await page.evaluate(() => (window as unknown as { __opened: string }).__opened)).toBe('https://1password.com/downloads/');
+  await settings.getByRole('button', { name: 'Download 1Password' }).click();
+  expect(await settings.evaluate(() => (window as unknown as { __opened: string }).__opened)).toBe('https://1password.com/downloads/');
 
   // Installed now: checking again says so.
-  await page.evaluate(() => ((window as unknown as { __opInstalled: boolean }).__opInstalled = true));
-  await page.getByRole('button', { name: 'Check again' }).click();
-  await expect(page.getByText('1Password CLI 2.30.0 found.', { exact: false })).toBeVisible();
+  await settings.evaluate(() => ((window as unknown as { __opInstalled: boolean }).__opInstalled = true));
+  await settings.getByRole('button', { name: 'Check again' }).click();
+  await expect(settings.getByText('1Password CLI 2.30.0 found.', { exact: false })).toBeVisible();
 });
 
 test('Settings shows one part at a time and opens where it was left', async ({ page }) => {
   await boot(page, { fireUpdateOnBoot: false });
-  await page.getByRole('button', { name: 'Settings' }).click();
-  const nav = page.getByRole('navigation', { name: 'Settings sections' });
+  const settings = await openSettings(page);
+  const nav = settings.getByRole('navigation', { name: 'Settings sections' });
 
   // General first: the theme is there, the update switch is not.
   await expect(nav.getByRole('button', { name: 'General' })).toHaveAttribute('aria-current', 'page');
-  await expect(page.getByRole('button', { name: 'Light', exact: true })).toBeVisible();
-  await expect(page.getByRole('switch', { name: 'Check for updates on startup' })).toHaveCount(0);
+  await expect(settings.getByRole('button', { name: 'Light', exact: true })).toBeVisible();
+  await expect(settings.getByRole('switch', { name: 'Check for updates on startup' })).toHaveCount(0);
 
   await nav.getByRole('button', { name: 'Updates' }).click();
-  await expect(page.getByRole('switch', { name: 'Check for updates on startup' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Light', exact: true })).toHaveCount(0);
+  await expect(settings.getByRole('switch', { name: 'Check for updates on startup' })).toBeVisible();
+  await expect(settings.getByRole('button', { name: 'Light', exact: true })).toHaveCount(0);
 
-  await page.getByRole('button', { name: 'Dashboard' }).first().click();
-  await page.getByRole('button', { name: 'Settings' }).click();
-  await expect(nav.getByRole('button', { name: 'Updates' })).toHaveAttribute('aria-current', 'page');
+  // Closed and opened again, it comes back on Updates.
+  await settings.close();
+  const again = await openSettings(page);
+  await expect(
+    again.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'Updates' })
+  ).toHaveAttribute('aria-current', 'page');
+});
+
+test('Settings is a window of its own: the main window keeps showing what it showed', async ({ page }) => {
+  await boot(page, { fireUpdateOnBoot: false });
+  const settings = await openSettings(page);
+  // The main window still shows the dashboard, and the Settings window has no sidebar.
+  await expect(page.getByText('web-1', { exact: true })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'Settings sections' })).toHaveCount(0);
+  await expect(settings.getByRole('button', { name: 'Collapse sidebar' })).toHaveCount(0);
+  await expect(settings).toHaveTitle('Settings');
 });

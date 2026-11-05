@@ -26,6 +26,8 @@
   import { automationsTab } from '$lib/stores/automations';
   import { spawnSession, closeSession } from '$lib/stores/navigation';
   import { palette } from '$lib/stores/palette';
+  import { lastError } from '$lib/stores/notifications';
+  import { openSettingsWindow } from '$lib/settingsWindow';
 
   // The running version, shown beside the Settings gear (or in its tooltip when the
   // sidebar is collapsed). Absent outside Electron (tests, `vite preview`).
@@ -256,18 +258,14 @@
       <Icon name="command" />
     </Button>
     <ThemeToggle />
-    <!-- Settings is a selector-like screen; the gear holds the active highlight like
-         Dashboard/Snippets do, and stays icon-only so it survives collapse (§5.1). -->
+    <!-- Settings opens in a window of its own; the gear stays icon-only so it survives
+         collapse (§5.1). -->
     <button
       type="button"
-      class="grid h-9 w-9 place-items-center rounded-full transition {focusRing} {$activeEntity.kind ===
-      'settings'
-        ? 'bg-accent text-accent-fg'
-        : 'text-muted hover:bg-surface-inset hover:text-fg'}"
+      class="grid h-9 w-9 place-items-center rounded-full text-muted transition hover:bg-surface-inset hover:text-fg {focusRing}"
       title={$sidebarCollapsed && appVersion ? `Settings · v${appVersion}` : 'Settings'}
       aria-label="Settings"
-      aria-current={$activeEntity.kind === 'settings' ? 'page' : undefined}
-      onclick={() => activeEntity.selectSettings()}
+      onclick={() => void openSettingsWindow().catch((e) => lastError.set(e instanceof Error ? e.message : String(e)))}
     >
       <Icon name="settings" />
     </button>

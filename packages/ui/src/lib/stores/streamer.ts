@@ -55,6 +55,11 @@ function createStreamerMode() {
     subscribe,
     set: (on: boolean) => apply(on, true),
     toggle: () => apply(!current, true),
+    /** Take on the value another window set (its localStorage mirror changed). */
+    adopt(raw: string | null): void {
+      const on = raw === 'true';
+      if (on !== current) apply(on, false);
+    },
     /** Reconcile with the canonical settings-store value once the Electron bridge is reachable. */
     async hydrate(): Promise<void> {
       try {
@@ -70,6 +75,7 @@ function createStreamerMode() {
 }
 
 export const streamerMode = createStreamerMode();
+export const STREAMER_LOCAL_KEY = LOCAL_KEY;
 
 // --- Address masking (pure, deterministic) --------------------------------------
 
