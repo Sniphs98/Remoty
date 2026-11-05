@@ -111,10 +111,11 @@ describe.skipIf(process.platform === 'win32')('a WSL command in bash', () => {
     expect(r.stdout).toBe('hello\nworld\n');
     expect(r.stderr).not.toContain("$'\\r'");
     expect(r.exitCode).toBe(0);
-    // Without it, what was seen: bash takes the `\r` for part of each line.
+    // Without it, what was seen: bash takes the `\r` for part of each line. (Whether
+    // `exit 0\r` then fails too depends on the bash version: 5.3 reads trailing
+    // whitespace in a number as part of it, so only the echoed `\r` is checked.)
     const raw = runInBash(command, { ...process.env, REMOTY_COMMAND: command });
     expect(raw.stdout).toContain('hello\r');
-    expect(raw.stderr).toContain('numeric argument required');
   });
 
   it('runs a command with Linux line ends, and a one-line one, as before', () => {
