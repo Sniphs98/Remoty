@@ -66,6 +66,13 @@ async function boot(
                 login: 'Sniphs98',
                 repository: args[0] ? { fullName: args[0], private: true, defaultBranch: 'main' } : undefined
               });
+            // The 1Password CLI isn't installed until the test says it is.
+            case 'onepassword_status':
+              return Promise.resolve(
+                win.__opInstalled
+                  ? { installed: true, version: '2.30.0', docsUrl: 'https://developer.1password.com/docs/cli/get-started/' }
+                  : { installed: false, command: 'winget install AgileBits.1Password.CLI', docsUrl: 'https://developer.1password.com/docs/cli/get-started/' }
+              );
             case 'load_update_config':
               return Promise.resolve({ ...state.updateConfig });
             case 'save_update_config':
@@ -292,6 +299,25 @@ test('Settings → GitHub: a token (or a 1Password reference) is saved and teste
   await page.getByLabel('Token', { exact: true }).fill('op://Private/GitHub/token');
   await page.getByRole('button', { name: 'Save and test' }).click();
   expect(await page.evaluate(() => (window as unknown as { __github: { tokenRef: string } }).__github.tokenRef)).toBe('op://Private/GitHub/token');
+});
+
+test('Settings → 1Password: the setup steps, the install command, and a check again', async ({ page }) => {
+  await boot(page, { fireUpdateOnBoot: false });
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: '1Password' }).click();
+
+  await expect(page.getByText("The 1Password CLI isn't installed yet. Follow the steps below.")).toBeVisible();
+  await expect(page.getByText('winget install AgileBits.1Password.CLI')).toBeVisible();
+  await expect(page.getByText('Settings → Developer → Integrate with 1Password CLI')).toBeVisible();
+  await expect(page.getByText('Settings → Developer → Use the SSH agent')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Download 1Password' }).click();
+  expect(await page.evaluate(() => (window as unknown as { __opened: string }).__opened)).toBe('https://1password.com/downloads/');
+
+  // Installed now: checking again says so.
+  await page.evaluate(() => ((window as unknown as { __opInstalled: boolean }).__opInstalled = true));
+  await page.getByRole('button', { name: 'Check again' }).click();
+  await expect(page.getByText('1Password CLI 2.30.0 found.', { exact: false })).toBeVisible();
 });
 
 test('Settings shows one part at a time and opens where it was left', async ({ page }) => {

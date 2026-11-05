@@ -17,6 +17,7 @@
   import { checkUpdate, loadUpdateConfig, saveUpdateConfig } from '$lib/ipc/commands';
   import GitHubSettings from '$lib/components/GitHubSettings.svelte';
   import AiSettings from '$lib/components/AiSettings.svelte';
+  import OnePasswordSettings from '$lib/components/OnePasswordSettings.svelte';
   import { settingsSection, type SettingsSection } from '$lib/stores/settingsSection';
   import type { IconName } from '$lib/theme/icons';
 
@@ -25,6 +26,7 @@
     { id: 'terminal', label: 'Terminal', icon: 'terminal', blurb: 'Mouse, clipboard and drawing in terminal tabs.' },
     { id: 'ai', label: 'AI', icon: 'sparkle', blurb: 'The AI helper next to each terminal.' },
     { id: 'github', label: 'GitHub', icon: 'branch', blurb: 'Sign-in for automations that use GitHub.' },
+    { id: 'onepassword', label: '1Password', icon: 'key', blurb: 'Read addresses, passwords and SSH keys from 1Password.' },
     { id: 'updates', label: 'Updates', icon: 'download', blurb: 'New versions of Remoty.' }
   ];
   const current = $derived(SECTIONS.find((s) => s.id === $settingsSection) ?? SECTIONS[0]);
@@ -255,6 +257,8 @@
           <AiSettings />
         {:else if current.id === 'github'}
           <GitHubSettings />
+        {:else if current.id === 'onepassword'}
+          <OnePasswordSettings />
         {:else}
           <div class="space-y-6">
             <div class={group}>
