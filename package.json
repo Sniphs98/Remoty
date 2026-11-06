@@ -17,7 +17,7 @@
     "package:dir": "npm run build && electron-builder --dir"
   },
   "devDependencies": {
-    "electron-builder": "^26.15.3"
+    "electron-builder": "^26.18.0"
   },
   "overrides": {
     "dompurify": "^3.4.13"
