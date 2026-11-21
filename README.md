@@ -48,6 +48,7 @@ for what works, what's in progress, and what's still planned.
 | ✅ | **Two-panel SFTP** | Local and remote side by side, drag & drop (also from your file manager), parallel transfers, smooth even in folders with thousands of files. Shortcut badges for local folders (one can be where every SFTP tab opens), and two folders on the same server side by side to move or copy between — the copy runs on the server. |
 | ✅ | **In-place file editor** | Double-click a text file to edit it with Monaco, the editor from VS Code, local or remote. |
 | ✅ | **One-click SSH key setup** | Generates an Ed25519 key, installs it, verifies it, and optionally turns off password login, with automatic rollback if anything fails. |
+| ✅ | **zsh on any server** | Keep your .zshrc, plugins and theme in Settings → zsh and install them on a host with one click. Everything is downloaded on your computer and copied over, so the server needs no internet; if zsh is missing, a ready-made one is brought along without root. |
 | ✅ | **ProxyJump** | Hosts behind one or more bastions work everywhere: dashboard, terminal, SFTP. |
 | ✅ | **Encrypted passwords** | Stored passwords are encrypted with the OS keystore (DPAPI, Keychain, libsecret). |
 | ✅ | **1Password** | Read the address, port, user, domain or password of a host or a remote desktop connection from 1Password when connecting instead of storing it, and use SSH keys from the 1Password SSH agent. [How](#using-1password) |

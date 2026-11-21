@@ -8,6 +8,7 @@
   import StatusBar from './StatusBar.svelte';
   import CommandPalette from './CommandPalette.svelte';
   import KeySetupProgress from '$lib/screens/KeySetupProgress.svelte';
+  import ZshInstallProgress from '$lib/screens/ZshInstallProgress.svelte';
   import AutomationRunProgress from '$lib/screens/AutomationRunProgress.svelte';
   import UpdateBanner from './UpdateBanner.svelte';
   import { sidebarCollapsed, isCollapseChord } from '$lib/stores/ui';
@@ -39,6 +40,7 @@
   <StatusBar />
   <CommandPalette />
   <KeySetupProgress />
+  <ZshInstallProgress />
   <AutomationRunProgress />
   <UpdateBanner />
 </div>

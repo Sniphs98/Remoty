@@ -116,6 +116,18 @@ export const commands = {
   async startKeySetup(hostName: string, disablePasswordAuth: boolean): Promise<Result<null, CommandError>> {
     return call('start_key_setup', hostName, disablePasswordAuth);
   },
+  async zshProfileLoad(): Promise<Result<ZshProfileDto, CommandError>> {
+    return call('zsh_profile_load');
+  },
+  async zshProfileSave(profile: ZshProfileInputDto): Promise<Result<null, CommandError>> {
+    return call('zsh_profile_save', profile);
+  },
+  async zshProfileOpenFolder(): Promise<Result<null, CommandError>> {
+    return call('zsh_profile_open_folder');
+  },
+  async startZshInstall(hostName: string, setDefaultShell: boolean): Promise<Result<null, CommandError>> {
+    return call('start_zsh_install', hostName, setDefaultShell);
+  },
   async refreshMetrics(): Promise<Result<null, CommandError>> {
     return call('refresh_metrics');
   },
@@ -368,7 +380,10 @@ const EVENT_CHANNELS = {
   transferProgress: 'transfer-progress',
   updateAvailable: 'update-available',
   updateDownloadProgress: 'update-download-progress',
-  updateDownloaded: 'update-downloaded'
+  updateDownloaded: 'update-downloaded',
+  zshInstallComplete: 'zsh-install-complete',
+  zshInstallFailed: 'zsh-install-failed',
+  zshInstallProgress: 'zsh-install-progress'
 } as const;
 
 type EventMap = {
@@ -401,6 +416,9 @@ type EventMap = {
   updateAvailable: UpdateAvailable;
   updateDownloadProgress: UpdateDownloadProgress;
   updateDownloaded: UpdateDownloaded;
+  zshInstallComplete: ZshInstallComplete;
+  zshInstallFailed: ZshInstallFailed;
+  zshInstallProgress: ZshInstallProgress;
 };
 
 type EventCallback<T> = (event: { payload: T }) => void;
@@ -666,6 +684,27 @@ export type KeySetupProgress = { hostName: string; step: KeySetupStepDto };
 export type KeySetupRollback = { hostName: string; result: string };
 /** One step of the auto key-setup flow, for the progress view. */
 export type KeySetupStepDto = { index: number; total: number; description: string };
+export type ZshProfileInputDto = { zshrc: string; plugins: string; theme: string };
+export type ZshProfileDto = ZshProfileInputDto & {
+  folder: string;
+  homeFolder: string;
+  homeFiles: string[];
+  defaults: ZshProfileInputDto;
+};
+export type ZshInstallResultDto = {
+  zshPath: string;
+  zshVersion: string;
+  shell: 'unchanged' | 'already' | 'changed' | 'profile';
+  plugins: string[];
+  homeFiles: string[];
+  backups: string[];
+  profileFile: string | null;
+  bundledZsh: boolean;
+  offlineCopies: string[];
+};
+export type ZshInstallProgress = { hostName: string; step: KeySetupStepDto };
+export type ZshInstallComplete = { hostName: string; result: ZshInstallResultDto };
+export type ZshInstallFailed = { hostName: string; error: string };
 /** A metrics snapshot for a host. */
 export type MetricsDto = {
   cpuPercent?: number | null;

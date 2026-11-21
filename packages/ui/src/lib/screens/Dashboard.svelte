@@ -24,6 +24,7 @@
     deleteHost,
     reloadHosts,
     startKeySetup,
+    startZshInstall,
     refreshMetrics,
     unlockHost,
     terminalProfiles,
@@ -32,6 +33,8 @@
   } from '$lib/ipc/commands';
   import { isRefreshHotkey } from '$lib/stores/ui';
   import { beginKeySetup, dismissKeySetup } from '$lib/stores/keySetup';
+  import { beginZshInstall, dismissZshInstall } from '$lib/stores/zshInstall';
+  import { openSettingsWindow } from '$lib/settingsWindow';
   import { emptyForm, formFromHost, formToInput } from './hostForm';
   import HostEditor from './HostEditor.svelte';
   import ConnectionImportDialog from './ConnectionImportDialog.svelte';
@@ -43,6 +46,7 @@
     | { kind: 'edit'; host: HostDto }
     | { kind: 'delete'; host: HostDto }
     | { kind: 'keySetupConfirm'; host: HostDto }
+    | { kind: 'zshConfirm'; host: HostDto }
     | { kind: 'newFolder' }
     | { kind: 'import'; preview: ConnectionImportPreviewDto };
 
@@ -50,6 +54,7 @@
   // Reset to the safer default (disable password login) each time the confirm dialog
   // opens, so a prior run's choice never silently carries over to a different host.
   let disablePasswordAuth = $state(true);
+  let zshDefaultShell = $state(false);
 
   // Host search (task 6): a round toggle slides a filter field out to its left and the
   // grid filters live. Frontend-only — the core stays untouched.
@@ -246,6 +251,18 @@
       await startKeySetup(host.name, disable);
     } catch (e) {
       dismissKeySetup();
+      lastError.set(message(e));
+    }
+  }
+
+  async function confirmZshInstall(host: HostDto): Promise<void> {
+    const setDefault = zshDefaultShell;
+    dialog = null;
+    beginZshInstall(host.name, setDefault);
+    try {
+      await startZshInstall(host.name, setDefault);
+    } catch (e) {
+      dismissZshInstall();
       lastError.set(message(e));
     }
   }
@@ -577,6 +594,18 @@
                 <Icon name="key" size={14} />
               </button>
             {/if}
+            <button
+              type="button"
+              class={iconBtn}
+              title="Install zsh with your profile on {card.host.name}"
+              aria-label="Install zsh on {card.host.name}"
+              onclick={() => {
+                zshDefaultShell = false;
+                dialog = { kind: 'zshConfirm', host: card.host };
+              }}
+            >
+              <Icon name="terminal" size={14} />
+            </button>
             <!-- Editing an import adopts it into hosts.toml (§4.2); ~/.ssh/config is
                  never written, so the action is offered whatever the source. Export and
                  delete are in the editor, like a Remote Desktop connection's. -->
@@ -788,6 +817,52 @@
       <div class="flex justify-end gap-2 pt-1">
         <Button variant="ghost" onclick={() => (dialog = null)}>Cancel</Button>
         <Button variant="primary" onclick={() => confirmKeySetup(host)}>Set up key</Button>
+      </div>
+    </div>
+  </Modal>
+{:else if dialog?.kind === 'zshConfirm'}
+  {@const host = dialog.host}
+  <Modal label="Install zsh" onClose={() => (dialog = null)}>
+    <div class="space-y-3 px-5 py-4">
+      <h2 class="text-sm font-semibold">Install zsh on {host.name}</h2>
+      <p class="text-sm text-muted">
+        Copies your zsh profile — .zshrc, plugins and theme — to the server. If zsh is missing, a ready-made zsh is
+        brought along into ~/.zsh, without root. The server needs no internet; an existing .zshrc is kept as a backup.
+      </p>
+      <button
+        type="button"
+        class="text-xs text-muted underline decoration-dotted hover:text-fg"
+        onclick={() => void openSettingsWindow('zsh')}
+      >
+        Edit the profile in Settings
+      </button>
+      <div class="flex items-center justify-between gap-4">
+        <div class="min-w-0">
+          <p class="text-sm">Make zsh the login shell</p>
+          <p class="text-xs text-muted">
+            Uses chsh with root or sudo. Without either, the login profile starts zsh instead.
+          </p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={zshDefaultShell}
+          aria-label="Make zsh the login shell"
+          onclick={() => (zshDefaultShell = !zshDefaultShell)}
+          class="relative h-6 w-11 shrink-0 rounded-full transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus {zshDefaultShell
+            ? 'bg-accent'
+            : 'bg-surface-inset'}"
+        >
+          <span
+            class="absolute top-0.5 h-5 w-5 rounded-full bg-surface shadow-soft transition-[left] {zshDefaultShell
+              ? 'left-[1.375rem]'
+              : 'left-0.5'}"
+          ></span>
+        </button>
+      </div>
+      <div class="flex justify-end gap-2 pt-1">
+        <Button variant="ghost" onclick={() => (dialog = null)}>Cancel</Button>
+        <Button variant="primary" onclick={() => confirmZshInstall(host)}>Install zsh</Button>
       </div>
     </div>
   </Modal>

@@ -31,7 +31,10 @@ import {
   applySftpDisconnected,
   applySftpOpDone,
   applyTerminalExited,
-  applyTransferProgress
+  applyTransferProgress,
+  applyZshInstallComplete,
+  applyZshInstallFailed,
+  applyZshInstallProgress
 } from './router';
 
 export async function startEventBridge(): Promise<() => void> {
@@ -53,6 +56,9 @@ export async function startEventBridge(): Promise<() => void> {
     offs.push(await events.keySetupComplete.listen((e) => applyKeySetupComplete(e.payload)));
     offs.push(await events.keySetupFailed.listen((e) => applyKeySetupFailed(e.payload)));
     offs.push(await events.keySetupRollback.listen((e) => applyKeySetupRollback(e.payload)));
+    offs.push(await events.zshInstallProgress.listen((e) => applyZshInstallProgress(e.payload)));
+    offs.push(await events.zshInstallComplete.listen((e) => applyZshInstallComplete(e.payload)));
+    offs.push(await events.zshInstallFailed.listen((e) => applyZshInstallFailed(e.payload)));
     offs.push(await events.updateAvailable.listen((e) => applyUpdateAvailable(e.payload)));
     offs.push(await events.updateDownloadProgress.listen((e) => applyUpdateDownloadProgress(e.payload)));
     offs.push(await events.updateDownloaded.listen((e) => applyUpdateDownloaded(e.payload)));
