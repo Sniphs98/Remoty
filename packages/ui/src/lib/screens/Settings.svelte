@@ -11,7 +11,7 @@
   import { theme } from '$lib/stores/theme';
   import { streamerMode } from '$lib/stores/streamer';
   import { refreshInterval, REFRESH_OPTIONS } from '$lib/stores/settings';
-  import { terminalCopyOnSelect, terminalGpu, terminalRightClick } from '$lib/stores/terminalPrefs';
+  import { terminalCopyOnSelect, terminalEngine, terminalGpu, terminalRightClick } from '$lib/stores/terminalPrefs';
   import { shareUpdate } from '$lib/stores/crossWindow';
   import { lastError } from '$lib/stores/notifications';
   import { checkUpdate, loadUpdateConfig, saveUpdateConfig } from '$lib/ipc/commands';
@@ -248,6 +248,24 @@
                   <p class="text-sm">GPU acceleration</p>
                   <p class="text-xs text-muted">Draw terminals with WebGL, much faster under heavy output. Turn off if text renders garbled.</p>
                 </div>
+              </div>
+            </div>
+
+            <div class={group}>
+              <h3 class={kicker}>Engine</h3>
+              <p class="text-sm">Terminal engine</p>
+              <p class="text-xs text-muted">
+                xterm.js is the proven default. Ghostty runs the terminal core of the Ghostty app, with more exact Unicode
+                and escape-sequence handling, but is still experimental here: it always draws without WebGL, and a theme
+                change only fully applies to new tabs. Applies to terminals you open from now on.
+              </p>
+              <div class="mt-2.5 inline-flex gap-1 rounded-xl bg-surface-inset p-1">
+                <button type="button" class="{seg} {segState($terminalEngine === 'xterm')}" aria-pressed={$terminalEngine === 'xterm'} onclick={() => terminalEngine.set('xterm')}>
+                  xterm.js
+                </button>
+                <button type="button" class="{seg} {segState($terminalEngine === 'ghostty')}" aria-pressed={$terminalEngine === 'ghostty'} onclick={() => terminalEngine.set('ghostty')}>
+                  Ghostty (experimental)
+                </button>
               </div>
             </div>
           </div>

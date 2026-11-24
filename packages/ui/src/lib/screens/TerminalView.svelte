@@ -7,8 +7,7 @@
   import '@xterm/xterm/css/xterm.css';
   import { onMount, onDestroy } from 'svelte';
   import { get } from 'svelte/store';
-  import type { Terminal } from '@xterm/xterm';
-  import type { FitAddon } from '@xterm/addon-fit';
+  import { createTerminal, type EngineHandle, type EngineTerminal } from './terminalEngine';
   import { theme } from '$lib/stores/theme';
   import { xtermTheme } from '$lib/theme/terminalTheme';
   import { sessions, type Session } from '$lib/stores/sessions';
@@ -27,8 +26,7 @@
   import { chunkBytes, typedCommandLine } from './terminalInput';
   import { shellQuote } from './shellQuote';
   import { copySelection, isCopyChord, isMacPlatform, isPasteChord, pasteFromClipboard } from './terminalClipboard';
-  import { terminalCopyOnSelect, terminalGpu, terminalRightClick } from '$lib/stores/terminalPrefs';
-  import { followGpuPref } from './terminalRenderer';
+  import { terminalCopyOnSelect, terminalEngine, terminalGpu, terminalRightClick } from '$lib/stores/terminalPrefs';
   import ContextMenu, { type ContextMenuItem } from '$lib/components/ContextMenu.svelte';
   import { Channel, type TerminalBytes, type AiShellContextDto } from '$lib/bindings';
   import { metrics } from '$lib/stores/metrics';
@@ -252,8 +250,8 @@
   }
 
   let container: HTMLDivElement;
-  let term: Terminal | undefined;
-  let fitAddon: FitAddon | undefined;
+  let term: EngineTerminal | undefined;
+  let engine: EngineHandle | undefined;
   let termId: number | undefined;
   let destroyed = false;
   let connected = false;
@@ -275,9 +273,9 @@
   /** Fit the terminal to its container and tell the backend, but only while visible —
    *  a hidden (display:none) container measures 0, so it refits when shown instead. */
   function safeFit(): void {
-    if (!term || !fitAddon || !active) return;
+    if (!term || !engine || !active) return;
     try {
-      fitAddon.fit();
+      engine.fit();
     } catch {
       return;
     }
@@ -307,29 +305,28 @@
         });
     }
     void (async () => {
-      const [{ Terminal }, { FitAddon }] = await Promise.all([
-        import('@xterm/xterm'),
-        import('@xterm/addon-fit')
-      ]);
-      if (destroyed) return;
-
-      term = new Terminal({
+      // The engine is picked once per tab (Settings → Terminal); the tab keeps it.
+      const handle = await createTerminal(get(terminalEngine), {
         fontFamily: MONO,
         fontSize: 13,
         cursorBlink: true,
-        scrollback: 5000
+        scrollback: 5000,
+        theme: xtermTheme(get(theme))
       });
-      fitAddon = new FitAddon();
-      term.loadAddon(fitAddon);
+      if (destroyed) {
+        handle.term.dispose();
+        return;
+      }
+      engine = handle;
+      term = handle.term;
       term.open(container);
-      gpuUnsub = followGpuPref(term, terminalGpu);
+      gpuUnsub = handle.followGpu(terminalGpu);
       term.onScroll(syncScrolled);
 
-      // The #1 theme-regression guard (§5.1): push the matching xterm theme to this
-      // terminal — including already-open ones — whenever the store flips. Its
-      // synchronous first call (pre-paint) also sets the initial theme.
+      // The #1 theme-regression guard (§5.1): push the matching theme to this
+      // terminal — including already-open ones — whenever the store flips.
       themeUnsub = theme.subscribe((t) => {
-        if (term) term.options.theme = xtermTheme(t);
+        if (term) handle.setTheme(xtermTheme(t));
       });
 
       // Route raw output into xterm. The channel is typed `number[]`, but the raw path
@@ -424,6 +421,7 @@
     // Null it so a byte still in flight (destroyed-before-open race) can't write to
     // a disposed terminal — the channel callback's `if (!term)` guard then bails.
     term = undefined;
+    engine = undefined;
   });
 
   // Becoming visible: a hidden container measured 0, so refit and take focus.
@@ -453,7 +451,7 @@
     style="padding: max(var(--titlebar-h), 0.75rem) 0.5rem 1rem;"
     oncontextmenu={handleContextMenu}
   >
-    <div bind:this={container} class="h-full w-full" class:term-fade={scrolled}></div>
+    <div bind:this={container} class="terminal-host h-full w-full" class:term-fade={scrolled}></div>
   </div>
 
   {#if ready && !aiOpen}
