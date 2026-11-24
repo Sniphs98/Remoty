@@ -475,6 +475,9 @@ test('with the Ghostty engine picked, a terminal opens on Ghostty and round-trip
   await expect(page.locator('.xterm')).toHaveCount(0);
 
   await host.locator('canvas').click();
+  // Only the terminal's own cursor shows, not the browser's text caret in the
+  // contenteditable host ghostty-web takes keys through.
+  expect(await host.evaluate((el) => getComputedStyle(el).caretColor)).toBe('rgba(0, 0, 0, 0)');
   await page.evaluate(() => {
     (window as unknown as { __terminalWrites: { text: string } }).__terminalWrites.text = '';
   });
