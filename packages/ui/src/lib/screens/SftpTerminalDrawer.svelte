@@ -11,8 +11,8 @@
   // gives real tabs).
   import '@xterm/xterm/css/xterm.css';
   import { onMount, onDestroy } from 'svelte';
-  import type { Terminal } from '@xterm/xterm';
-  import type { FitAddon } from '@xterm/addon-fit';
+  import { get } from 'svelte/store';
+  import { createTerminal, type EngineHandle, type EngineTerminal } from './terminalEngine';
   import { theme } from '$lib/stores/theme';
   import { xtermTheme } from '$lib/theme/terminalTheme';
   import { onOrphanTerminalExit, offOrphanTerminalExit } from '$lib/ipc/router';
@@ -22,8 +22,7 @@
   import { chunkBytes, typedCommandLine } from './terminalInput';
   import { shellQuote } from './shellQuote';
   import { copySelection, isCopyChord, isMacPlatform, isPasteChord, pasteFromClipboard } from './terminalClipboard';
-  import { terminalCopyOnSelect, terminalGpu, terminalRightClick } from '$lib/stores/terminalPrefs';
-  import { followGpuPref } from './terminalRenderer';
+  import { terminalCopyOnSelect, terminalEngine, terminalGpu, terminalRightClick } from '$lib/stores/terminalPrefs';
   import ContextMenu, { type ContextMenuItem } from '$lib/components/ContextMenu.svelte';
   import { Channel, type TerminalBytes } from '$lib/bindings';
 
@@ -139,8 +138,8 @@
   }
 
   let container: HTMLDivElement;
-  let term: Terminal | undefined;
-  let fitAddon: FitAddon | undefined;
+  let term: EngineTerminal | undefined;
+  let engine: EngineHandle | undefined;
   let termId: number | undefined;
   let destroyed = false;
   let ready = $state(false);
@@ -156,9 +155,9 @@
   }
 
   function safeFit(): void {
-    if (!term || !fitAddon) return;
+    if (!term || !engine) return;
     try {
-      fitAddon.fit();
+      engine.fit();
     } catch {
       return;
     }
@@ -176,26 +175,25 @@
 
   onMount(() => {
     void (async () => {
-      const [{ Terminal }, { FitAddon }] = await Promise.all([
-        import('@xterm/xterm'),
-        import('@xterm/addon-fit')
-      ]);
-      if (destroyed) return;
-
-      term = new Terminal({
+      const handle = await createTerminal(get(terminalEngine), {
         fontFamily: MONO,
         fontSize: 13,
         cursorBlink: true,
-        scrollback: 5000
+        scrollback: 5000,
+        theme: xtermTheme(get(theme))
       });
-      fitAddon = new FitAddon();
-      term.loadAddon(fitAddon);
+      if (destroyed) {
+        handle.term.dispose();
+        return;
+      }
+      engine = handle;
+      term = handle.term;
       term.open(container);
-      gpuUnsub = followGpuPref(term, terminalGpu);
+      gpuUnsub = handle.followGpu(terminalGpu);
       term.onScroll(syncScrolled);
 
       themeUnsub = theme.subscribe((t) => {
-        if (term) term.options.theme = xtermTheme(t);
+        if (term) handle.setTheme(xtermTheme(t));
       });
 
       const channel = new Channel<TerminalBytes>();
@@ -252,6 +250,7 @@
     }
     term?.dispose();
     term = undefined;
+    engine = undefined;
   });
 </script>
 
@@ -259,7 +258,7 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -- see TerminalView: this only
        replaces the browser's context menu over the terminal surface. -->
   <div class="h-full w-full px-2 pb-2 pt-1" oncontextmenu={handleContextMenu}>
-    <div bind:this={container} class="h-full w-full" class:term-fade={scrolled}></div>
+    <div bind:this={container} class="terminal-host h-full w-full" class:term-fade={scrolled}></div>
   </div>
   {#if exited}
     <div class="absolute inset-0 flex items-center justify-center bg-surface/90 text-sm text-muted">

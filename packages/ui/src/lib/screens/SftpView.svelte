@@ -593,7 +593,7 @@
   function onClipboardKeys(e: KeyboardEvent): void {
     if (!active || !(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
     const el = e.target as HTMLElement | null;
-    if (el && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName) || el.closest('.xterm'))) return;
+    if (el && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName) || el.closest('.xterm, .terminal-host'))) return;
     if (document.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"]')) return;
     if (window.getSelection()?.toString()) return;
     const key = e.key.toLowerCase();

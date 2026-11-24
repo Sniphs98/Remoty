@@ -1,4 +1,5 @@
 import { writable } from 'svelte/store';
+import type { TerminalEngineId } from '$lib/screens/terminalEngine';
 
 // Terminal mouse behaviour. Which one people expect is genuinely split — PuTTY and
 // most X11 terminals paste on right-click and copy the moment you select, while
@@ -17,6 +18,8 @@ const COPY_ON_SELECT_LOCAL_KEY = 'remoty-terminal-copy-on-select';
 const COPY_ON_SELECT_STORE_KEY = 'terminalCopyOnSelect';
 const GPU_LOCAL_KEY = 'remoty-terminal-gpu';
 const GPU_STORE_KEY = 'terminalGpu';
+const ENGINE_LOCAL_KEY = 'remoty-terminal-engine';
+const ENGINE_STORE_KEY = 'terminalEngine';
 
 async function settingsStore() {
   const { loadSettingsStore } = await import('$lib/ipc/settingsStore');
@@ -113,3 +116,11 @@ export const terminalCopyOnSelect = createPref<boolean>(
 /** Draw terminals with WebGL (see `screens/terminalRenderer.ts`). Defaults on — it is
  *  much faster under heavy output; off is the escape hatch for a misbehaving GPU. */
 export const terminalGpu = createPref<boolean>(GPU_LOCAL_KEY, GPU_STORE_KEY, parseBoolean, true);
+
+function parseEngine(raw: unknown): TerminalEngineId | undefined {
+  return raw === 'xterm' || raw === 'ghostty' ? raw : undefined;
+}
+
+/** Which library emulates new terminals (see `screens/terminalEngine.ts`). Defaults to
+ *  xterm.js; Ghostty is experimental. Open tabs keep the engine they started with. */
+export const terminalEngine = createPref<TerminalEngineId>(ENGINE_LOCAL_KEY, ENGINE_STORE_KEY, parseEngine, 'xterm');

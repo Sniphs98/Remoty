@@ -2,7 +2,7 @@ import type { UpdateInfoDto } from '$lib/bindings';
 import { theme, THEME_LOCAL_KEY } from './theme';
 import { streamerMode, STREAMER_LOCAL_KEY } from './streamer';
 import { refreshInterval, REFRESH_INTERVAL_LOCAL_KEY } from './settings';
-import { terminalCopyOnSelect, terminalGpu, terminalRightClick } from './terminalPrefs';
+import { terminalCopyOnSelect, terminalEngine, terminalGpu, terminalRightClick } from './terminalPrefs';
 import { settingsSection, SETTINGS_SECTION_LOCAL_KEY } from './settingsSection';
 import { offerUpdate } from './update';
 
@@ -20,6 +20,7 @@ const ADOPTERS: Record<string, (raw: string | null) => void> = {
   [terminalRightClick.localKey]: (raw) => terminalRightClick.adopt(raw),
   [terminalCopyOnSelect.localKey]: (raw) => terminalCopyOnSelect.adopt(raw),
   [terminalGpu.localKey]: (raw) => terminalGpu.adopt(raw),
+  [terminalEngine.localKey]: (raw) => terminalEngine.adopt(raw),
   [SETTINGS_SECTION_LOCAL_KEY]: (raw) => settingsSection.adopt(raw)
 };
 

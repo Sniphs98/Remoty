@@ -19,14 +19,15 @@ const HOSTS = [
 
 async function boot(
   page: Page,
-  opts: { webOneDefaultPath?: string; webOneStartupCommand?: string; gpu?: boolean } = {}
+  opts: { webOneDefaultPath?: string; webOneStartupCommand?: string; gpu?: boolean; engine?: 'xterm' | 'ghostty' } = {}
 ): Promise<void> {
   await page.context().addInitScript(
-    ({ hosts, webOneDefaultPath, webOneStartupCommand, gpu }) => {
+    ({ hosts, webOneDefaultPath, webOneStartupCommand, gpu, engine }) => {
       const win = window as unknown as Record<string, unknown>;
       // These tests read terminal text back from xterm's DOM renderer; with GPU
       // rendering on, it is drawn into a canvas instead.
       localStorage.setItem('remoty-terminal-gpu', String(gpu));
+      localStorage.setItem('remoty-terminal-engine', engine ?? 'xterm');
       const seededHosts = hosts.map((h) =>
         h.name === 'web-1'
           ? {
@@ -154,7 +155,8 @@ async function boot(
       hosts: HOSTS,
       webOneDefaultPath: opts.webOneDefaultPath,
       webOneStartupCommand: opts.webOneStartupCommand,
-      gpu: opts.gpu ?? false
+      gpu: opts.gpu ?? false,
+      engine: opts.engine
     }
   );
 
@@ -461,6 +463,29 @@ test('with GPU acceleration on, the terminal draws through WebGL', async ({ page
       )
     )
     .toBe(true);
+});
+
+// The experimental Ghostty engine (ghostty-web) draws into a canvas of its own, so these
+// assert on what reaches the pty and on the shape of the page rather than on rendered text.
+test('with the Ghostty engine picked, a terminal opens on Ghostty and round-trips input', async ({ page }) => {
+  await boot(page, { engine: 'ghostty' });
+  await page.getByTitle('sh on web-1').click();
+  const host = page.locator('.terminal-host');
+  await expect(host.locator('canvas')).toBeVisible();
+  await expect(page.locator('.xterm')).toHaveCount(0);
+
+  await host.locator('canvas').click();
+  await page.evaluate(() => {
+    (window as unknown as { __terminalWrites: { text: string } }).__terminalWrites.text = '';
+  });
+  await page.keyboard.type('hi');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Control+c');
+  await expect.poll(() => ptyWrites(page)).toContain('hi\r');
+  expect(await ptyWrites(page)).toContain('\x03');
+
+  await page.getByRole('button', { name: 'Close web-1', exact: true }).click();
+  await expect(page.locator('.terminal-host')).toHaveCount(0);
 });
 
 type CommandsWindow = { __terminalCommands: string[] };

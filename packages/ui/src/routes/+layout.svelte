@@ -7,7 +7,7 @@
   import { sidebarCollapsed } from '$lib/stores/ui';
   import { sidebarMode } from '$lib/stores/sidebarMode';
   import { followSidebarMode } from '$lib/stores/navigation';
-  import { terminalCopyOnSelect, terminalGpu, terminalRightClick } from '$lib/stores/terminalPrefs';
+  import { terminalCopyOnSelect, terminalEngine, terminalGpu, terminalRightClick } from '$lib/stores/terminalPrefs';
   import { streamerMode } from '$lib/stores/streamer';
   import { sftpBookmarks } from '$lib/stores/sftpBookmarks';
   import { refreshInterval, driveMetricsRefresh } from '$lib/stores/settings';
@@ -25,6 +25,8 @@
       void terminalRightClick.hydrate();
       void terminalCopyOnSelect.hydrate();
       void terminalGpu.hydrate();
+    void terminalEngine.hydrate();
+      void terminalEngine.hydrate();
       void streamerMode.hydrate();
       void refreshInterval.hydrate();
       return followOtherWindows({ updates: false });
@@ -41,6 +43,7 @@
     void terminalRightClick.hydrate();
     void terminalCopyOnSelect.hydrate();
     void terminalGpu.hydrate();
+    void terminalEngine.hydrate();
     void streamerMode.hydrate();
     void refreshInterval.hydrate();
     void sftpBookmarks.hydrate();
