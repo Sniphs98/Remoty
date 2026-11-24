@@ -38,6 +38,8 @@ import type {
   RemoteDesktopConnectionInputDto,
   VncEmbeddedSessionDto,
   VncEmbeddedStatusDto,
+  ZshProfileDto,
+  ZshProfileInputDto,
   VncLaunchResultDto,
   TerminalBytes,
   UpdateConfigDto,
@@ -247,6 +249,27 @@ export async function writeLocalFile(path: string, content: string): Promise<voi
  *  rejects here. */
 export async function startKeySetup(hostName: string, disablePasswordAuth: boolean): Promise<void> {
   const res = await commands.startKeySetup(hostName, disablePasswordAuth);
+  if (res.status === 'error') throw new Error(res.error.message);
+}
+
+export async function zshProfileLoad(): Promise<ZshProfileDto> {
+  const res = await commands.zshProfileLoad();
+  if (res.status === 'error') throw new Error(res.error.message);
+  return res.data;
+}
+
+export async function zshProfileSave(profile: ZshProfileInputDto): Promise<void> {
+  const res = await commands.zshProfileSave(profile);
+  if (res.status === 'error') throw new Error(res.error.message);
+}
+
+export async function zshProfileOpenFolder(): Promise<void> {
+  const res = await commands.zshProfileOpenFolder();
+  if (res.status === 'error') throw new Error(res.error.message);
+}
+
+export async function startZshInstall(hostName: string, setDefaultShell: boolean): Promise<void> {
+  const res = await commands.startZshInstall(hostName, setDefaultShell);
   if (res.status === 'error') throw new Error(res.error.message);
 }
 

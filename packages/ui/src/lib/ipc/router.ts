@@ -22,8 +22,12 @@ import type {
   SftpDirListed,
   SftpDisconnected,
   SftpOpDone,
-  TransferProgressDto
+  TransferProgressDto,
+  ZshInstallComplete,
+  ZshInstallFailed,
+  ZshInstallProgress
 } from '$lib/bindings';
+import { reduceZshComplete, reduceZshFailed, reduceZshProgress, zshInstall } from '$lib/stores/zshInstall';
 import {
   automationRun,
   endActiveRun,
@@ -190,6 +194,18 @@ export function applyKeySetupFailed(payload: KeySetupFailed): void {
 
 export function applyKeySetupRollback(payload: KeySetupRollback): void {
   keySetup.set(reduceRollback(payload.hostName, payload.result));
+}
+
+export function applyZshInstallProgress(payload: ZshInstallProgress): void {
+  zshInstall.update((run) => reduceZshProgress(run, payload.hostName, payload.step));
+}
+
+export function applyZshInstallComplete(payload: ZshInstallComplete): void {
+  zshInstall.update((run) => reduceZshComplete(run, payload.hostName, payload.result));
+}
+
+export function applyZshInstallFailed(payload: ZshInstallFailed): void {
+  zshInstall.update((run) => reduceZshFailed(run, payload.hostName, payload.error));
 }
 
 // Snippets/Automation-run events. Mirrors key setup's shape: progress advances only the

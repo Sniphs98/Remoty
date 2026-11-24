@@ -18,12 +18,14 @@
   import GitHubSettings from '$lib/components/GitHubSettings.svelte';
   import AiSettings from '$lib/components/AiSettings.svelte';
   import OnePasswordSettings from '$lib/components/OnePasswordSettings.svelte';
+  import ZshSettings from '$lib/components/ZshSettings.svelte';
   import { settingsSection, type SettingsSection } from '$lib/stores/settingsSection';
   import type { IconName } from '$lib/theme/icons';
 
   const SECTIONS: { id: SettingsSection; label: string; icon: IconName; blurb: string }[] = [
     { id: 'general', label: 'General', icon: 'sun', blurb: 'Theme, privacy and the dashboard.' },
     { id: 'terminal', label: 'Terminal', icon: 'terminal', blurb: 'Mouse, clipboard and drawing in terminal tabs.' },
+    { id: 'zsh', label: 'zsh', icon: 'snippets', blurb: 'Your zsh config, plugins and theme for servers.' },
     { id: 'ai', label: 'AI', icon: 'sparkle', blurb: 'The AI helper next to each terminal.' },
     { id: 'github', label: 'GitHub', icon: 'branch', blurb: 'Sign-in for automations that use GitHub.' },
     { id: 'onepassword', label: '1Password', icon: 'key', blurb: 'Read addresses, passwords and SSH keys from 1Password.' },
@@ -269,6 +271,8 @@
               </div>
             </div>
           </div>
+        {:else if current.id === 'zsh'}
+          <ZshSettings />
         {:else if current.id === 'ai'}
           <AiSettings />
         {:else if current.id === 'github'}

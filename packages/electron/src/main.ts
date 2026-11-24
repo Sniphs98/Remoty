@@ -10,6 +10,7 @@ import { registerHostsIpc } from './ipc/hosts.js';
 import { registerOnePasswordIpc } from './ipc/onePassword.js';
 import { registerGitHubIpc } from './ipc/github.js';
 import { registerKeySetupIpc } from './ipc/keysetup.js';
+import { registerZshIpc } from './ipc/zsh.js';
 import { cleanUpRdpOnQuit, registerRdpIpc } from './ipc/rdp.js';
 import { closeEmbeddedRdp, registerRdpEmbeddedIpc } from './ipc/rdpEmbedded.js';
 import { registerRemoteDesktopIpc } from './ipc/remoteDesktop.js';
@@ -195,6 +196,7 @@ app.whenReady().then(async () => {
   registerTerminalIpc(ipcMain, state);
   registerSftpIpc(ipcMain, state);
   registerKeySetupIpc(ipcMain, state);
+  registerZshIpc(ipcMain, state);
   registerUpdateIpc(ipcMain, state);
   registerAutomationsIpc(ipcMain, state);
   registerRemoteDesktopIpc(ipcMain);
