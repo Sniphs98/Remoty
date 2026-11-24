@@ -150,3 +150,10 @@ textarea {
 ::-webkit-scrollbar-corner {
   background: transparent;
 }
+
+/* The Ghostty engine makes the terminal's container contenteditable to receive keys, so
+   the browser would draw its own text caret at the top-left next to the terminal's
+   cursor. Only the terminal's cursor should show. */
+.terminal-host {
+  caret-color: transparent;
+}
